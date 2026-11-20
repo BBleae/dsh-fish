@@ -10,6 +10,8 @@
  *   6. 读回正文不留痕：账里不记、不写事件、桌上不会因此多出一行；
  *   7. 桌上只摆一件事实：十四天内动过的、还没弄完的；
  *   8. 坏账只当空，读永远不抛。
+ *   9. file 带进来的文件按解开链接以后的真实路径判：她自己那几处（home/ works/ keepsakes/ diary/）
+ *      里的什么都收，别处的只收图 / 声音 / 影像。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -385,5 +387,143 @@ test('文件产物：只有文件没有说明也算留下了', async () => {
     assert.equal(r.ok, true)
     const items = await listWorks(root, { limit: 5 })
     assert.equal(items[0].line, '（图）', '没写说明时，桌上/列表里只说它是图')
+  })
+})
+
+// ---------------------------- 带进来的文件从哪儿来 ----------------------------
+// file 收的是「她做出来的那一份」：她自己屋子里的东西，或者画图 / 录音 / 剪辑工具
+// 输出的图、声音、影像。数据目录里别的文件、别处的普通文件都不是她做出来的，
+// 不该被搬进 works/。下面的「凭据」全是合成的假字符串。
+
+/** 一个临时的外层目录：里面一份数据根（data/）、一份根外的目录（elsewhere/）。 */
+async function withRootAndOutside(fn) {
+  const base = await mkdtemp(join(tmpdir(), 'dsh-fish-works-src-'))
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const root = join(base, 'data')
+  const outside = join(base, 'elsewhere')
+  await mkdir(join(root, 'home'), { recursive: true })
+  await mkdir(outside, { recursive: true })
+  await writeFile(join(outside, 'notes.key'), 'FAKE-KEY-0000\n')
+  await writeFile(join(outside, 'shot.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 7, 7]))
+  await writeFile(join(root, 'owner.json'), JSON.stringify({ cookie: 'FAKECOOKIE=0000' }))
+  await writeFile(join(root, 'cloud-key.txt'), 'fake-passphrase-0000\n')
+  try {
+    return await fn({ root, outside })
+  } finally {
+    await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
+}
+
+async function worksFiles(root) {
+  const out = []
+  const walk = async (dir, pre) => {
+    let list = []
+    try { list = await readdir(dir, { withFileTypes: true }) } catch { return }
+    for (const e of list) {
+      const rel = pre ? `${pre}/${e.name}` : e.name
+      if (e.isDirectory()) await walk(join(dir, e.name), rel)
+      else out.push(rel)
+    }
+  }
+  await walk(worksDir(root), '')
+  return out
+}
+
+test('文件产物：根外的普通文件不收，什么都不搬', async () => {
+  await withRootAndOutside(async ({ root, outside }) => {
+    const r = await makeWork(root, { title: '一份', text: '说明', file: join(outside, 'notes.key'), now: NOW })
+    assert.equal(r.ok, false)
+    assert.match(r.note, /不能当成作品带进来/)
+    assert.deepEqual(await worksFiles(root), [], 'works/ 里不该多出任何文件')
+    assert.deepEqual((await readWorks(root)).items, [])
+  })
+})
+
+test('文件产物：数据目录里不是她的那些文件（owner.json / cloud-key.txt）不收', async () => {
+  await withRootAndOutside(async ({ root }) => {
+    const tries = [
+      '../owner.json',
+      '../cloud-key.txt',
+      'home/../config.json',
+      join(root, 'owner.json'),
+    ]
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(join(root, 'config.json'), JSON.stringify({ cloud: { targets: [{ token: 'FAKETOKEN0000' }] } }))
+    for (const [i, file] of tries.entries()) {
+      const r = await makeWork(root, { title: `第${i}份`, text: '说明', file, now: day(i) })
+      assert.equal(r.ok, false, `${file} 不该被收`)
+      assert.match(r.note, /不能当成作品带进来/)
+    }
+    assert.deepEqual(await worksFiles(root), [])
+  })
+})
+
+test('文件产物：根外的图照收（画图工具的输出目录不在她屋子里）', async () => {
+  await withRootAndOutside(async ({ root, outside }) => {
+    const r = await makeWork(root, { title: '外面画的', text: '工具画的', file: join(outside, 'shot.png'), now: NOW })
+    assert.equal(r.ok, true, r.note)
+    const got = await readWorkText(root, { title: '外面画的' })
+    assert.equal(got.kind, 'image')
+    assert.equal((await readFile(join(root, got.file))).length, 6)
+  })
+})
+
+test('文件产物：她自己屋子里的文件不管是什么类型都收', async () => {
+  await withRootAndOutside(async ({ root }) => {
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(join(root, 'home', 'plan.json'), '{"steps":["先画轮廓"]}')
+    const r = await makeWork(root, { title: '一份方案', text: '写成了文件', file: 'plan.json', now: NOW })
+    assert.equal(r.ok, true, r.note)
+    const got = await readWorkText(root, { title: '一份方案' })
+    assert.equal(got.kind, 'file')
+    assert.equal(await readFile(join(root, got.file), 'utf8'), '{"steps":["先画轮廓"]}')
+  })
+})
+
+test('文件产物：屋子里的链接指到外面的普通文件，也不收', async (t) => {
+  await withRootAndOutside(async ({ root, outside }) => {
+    const { symlink, writeFile } = await import('node:fs/promises')
+    // 目录链接：Windows 上用 junction（不要管理员权限），别处用普通目录软链。
+    // 两头都在这次测试自己建的临时目录里。
+    let dirLinked = true
+    try {
+      await symlink(outside, join(root, 'home', 'drawings'), process.platform === 'win32' ? 'junction' : 'dir')
+    } catch {
+      dirLinked = false
+    }
+    if (dirLinked) {
+      const viaDir = await makeWork(root, { title: '链进来的', text: '说明', file: 'drawings/notes.key', now: NOW })
+      assert.equal(viaDir.ok, false, '目录链接指到根外，普通文件不收')
+      assert.match(viaDir.note, /不能当成作品带进来/)
+      const img = await makeWork(root, { title: '链进来的图', text: '说明', file: 'drawings/shot.png', now: day(1) })
+      assert.equal(img.ok, true, '链到根外的图还是图，照收')
+    }
+    // 文件链接：起个像图的名字，指到根外的普通文件、或者根里的 owner.json；
+    // 再起一个指到她屋子里的一段声音。Windows 上没有权限建文件软链就跳过这一半。
+    await writeFile(join(root, 'home', 'tune.mp3'), Buffer.from([1, 2, 3]))
+    let fileLinked = true
+    try {
+      await symlink(join(outside, 'notes.key'), join(root, 'home', 'look.png'), 'file')
+      await symlink(join(root, 'owner.json'), join(root, 'home', 'face.png'), 'file')
+      await symlink(join(root, 'home', 'tune.mp3'), join(root, 'home', 'alias.png'), 'file')
+    } catch {
+      fileLinked = false
+    }
+    if (fileLinked) {
+      for (const [i, file] of ['look.png', 'face.png'].entries()) {
+        const r = await makeWork(root, { title: `改名的${i}`, text: '说明', file, now: day(2 + i) })
+        assert.equal(r.ok, false, `${file} 指的不是图`)
+        assert.match(r.note, /不能当成作品带进来/)
+      }
+      // 指到屋子里的东西照收，但类型和扩展名按真实那份算，不按链接的名字。
+      const own = await makeWork(root, { title: '链到自己的', text: '说明', file: 'alias.png', now: day(4) })
+      assert.equal(own.ok, true, own.note)
+      const got = await readWorkText(root, { title: '链到自己的' })
+      assert.equal(got.kind, 'audio', '类型按真实那份算')
+      assert.match(got.file, /\.mp3$/, '扩展名也按真实那份算')
+    }
+    if (!dirLinked && !fileLinked) t.skip('这台机器上建不了链接')
+    const files = await worksFiles(root)
+    assert.ok(!files.some((f) => /\.(key|json)$/.test(f)), `works/ 里不该有 .key / .json：${files.join(', ')}`)
   })
 })
