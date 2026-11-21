@@ -391,9 +391,9 @@ test('文件产物：只有文件没有说明也算留下了', async () => {
 })
 
 // ---------------------------- 带进来的文件从哪儿来 ----------------------------
-// file 收的是「她做出来的那一份」：数据目录里的东西不分扩展名都收（她手边有什么工具，
-// 就可能留下什么——图、声音、影像、代码、脚本、表格、幻灯片）；只有凭据文件（owner.json、
-// config.json、cookie 这类）不收。屋外的普通文件仍然不收，屋外的图 / 声音 / 影像照收。
+// file 收的是「她做出来的那一份」：她自己那几处（home / works / keepsakes / diary）里的东西
+// 不分扩展名都收（图、声音、影像、代码、脚本、表格、幻灯片）；凭据文件（owner.json、
+// config.json、cookie 这类）不收；数据目录里别处跟屋外一个口径，只收图 / 声音 / 影像。
 // 下面的「凭据」全是合成的假字符串。
 
 /** 一个临时的外层目录：里面一份数据根（data/）、一份根外的目录（elsewhere/）。 */
@@ -513,16 +513,16 @@ test('文件产物：她自己屋子里的文件不管是什么类型都收', as
   })
 })
 
-test('文件产物：数据目录里面到处的文件都收——代码、脚本、表格、幻灯片都行', async () => {
+test('文件产物：她自己那几处目录里到处的文件都收——代码、脚本、表格、幻灯片都行', async () => {
   await withRootAndOutside(async ({ root }) => {
     const { mkdir, writeFile } = await import('node:fs/promises')
     await mkdir(join(root, 'home', 'proj'), { recursive: true })
     await writeFile(join(root, 'home', 'proj', 'main.py'), 'print(1)\n')
-    await writeFile(join(root, 'plan.docx'), Buffer.from([0x50, 0x4b, 3, 4]))
-    await writeFile(join(root, 'worksheet.xlsx'), Buffer.from([0x50, 0x4b, 3, 4]))
+    await writeFile(join(root, 'home', 'plan.docx'), Buffer.from([0x50, 0x4b, 3, 4]))
+    await writeFile(join(root, 'home', 'worksheet.xlsx'), Buffer.from([0x50, 0x4b, 3, 4]))
     const cases = [
-      ['plan.docx', '一份文档'],
-      ['worksheet.xlsx', '一张表'],
+      ['home/plan.docx', '一份文档'],
+      ['home/worksheet.xlsx', '一张表'],
       ['home/proj/main.py', '自己写的小脚本'],
     ]
     for (const [i, [file, title]] of cases.entries()) {
@@ -539,14 +539,31 @@ test('文件产物：数据目录里面到处的文件都收——代码、脚�
   })
 })
 
-test('文件产物：数据目录里的凭据文件不收（名字看着就是钥匙的）', async () => {
+test('文件产物：数据目录别处（根上、out/ 里）的普通文件不收——那不是她自己的东西', async () => {
+  await withRootAndOutside(async ({ root }) => {
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    await mkdir(join(root, 'out'), { recursive: true })
+    await writeFile(join(root, 'plan.docx'), Buffer.from([0x50, 0x4b, 3, 4]))
+    await writeFile(join(root, 'out', '2026-11-21.md'), '# 今天的记录\n')
+    await writeFile(join(root, 'events.jsonl'), '{"ts":"2026-11-21T00:00:00Z"}\n')
+    const tries = ['plan.docx', 'out/2026-11-21.md', 'events.jsonl', join(root, 'out', '2026-11-21.md')]
+    for (const [i, file] of tries.entries()) {
+      const r = await makeWork(root, { title: `别处${i}`, text: '说明', file, now: day(i) })
+      assert.equal(r.ok, false, `${file} 不该被收`)
+      assert.match(r.note, /别处的只收图、声音、影像/)
+    }
+    assert.deepEqual(await worksFiles(root), [], 'works/ 里不该多出任何文件')
+  })
+})
+
+test('文件产物：凭据文件按精确名字判，不收', async () => {
   await withRootAndOutside(async ({ root }) => {
     const { writeFile } = await import('node:fs/promises')
     const cases = [
       ['home/.env', 'TOKEN=1\n'],
       ['home/cookies.txt', 'a=b\n'],
       ['home/key.pem', '-----BEGIN FAKE-----\n'],
-      ['home/session-token.json', '{"token":"FAKE"}\n'],
+      ['home/credentials.json', '{"token":"FAKE"}\n'],
     ]
     for (const [i, [name, body]] of cases.entries()) {
       await writeFile(join(root, ...name.split('/')), body)
@@ -555,6 +572,28 @@ test('文件产物：数据目录里的凭据文件不收（名字看着就是�
       assert.match(r.note, /凭据/, `${name} 该说清是凭据`)
     }
     assert.deepEqual(await worksFiles(root), [], 'works/ 里不该多出任何文件')
+  })
+})
+
+test('文件产物：名字里带 token / secret 的正常文件照收，不按词根猜', async () => {
+  await withRootAndOutside(async ({ root }) => {
+    const { writeFile } = await import('node:fs/promises')
+    const cases = [
+      ['home/tokenizer.py', 'def split(s): return s.split()\n'],
+      ['home/token_budget.md', '# 今天的额度\n'],
+      ['home/secret-santa.md', '# 抽签\n'],
+      ['home/.gitignore', 'node_modules/\n'],
+    ]
+    // 一周最多起三件（WORK_NEW_PER_WEEK = 3），第四件放到下一周。
+    const days = [0, 1, 2, 8]
+    for (const [i, [name, body]] of cases.entries()) {
+      await writeFile(join(root, ...name.split('/')), body)
+      const title = `正常${i}`
+      const r = await makeWork(root, { title, text: '说明', file: name, now: day(days[i]) })
+      assert.equal(r.ok, true, `${name} 该收：${r.note}`)
+      await closeWork(root, { title, now: day(days[i]) })
+    }
+    assert.equal((await worksFiles(root)).length, 4)
   })
 })
 
