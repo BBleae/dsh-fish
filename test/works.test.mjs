@@ -11,7 +11,7 @@
  *   7. 桌上只摆一件事实：十四天内动过的、还没弄完的；
  *   8. 坏账只当空，读永远不抛。
  *   9. file 带进来的文件按解开链接以后的真实路径判：她自己那几处（home/ works/ keepsakes/ diary/）
- *      里的什么都收，别处的只收图 / 声音 / 影像。
+ *      里的什么都收，别处的只收图 / 声音 / 影像；网络共享和设备路径在碰文件系统之前就拒。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -453,6 +453,38 @@ test('文件产物：数据目录里不是她的那些文件（owner.json / clou
       const r = await makeWork(root, { title: `第${i}份`, text: '说明', file, now: day(i) })
       assert.equal(r.ok, false, `${file} 不该被收`)
       assert.match(r.note, /不能当成作品带进来/)
+    }
+    assert.deepEqual(await worksFiles(root), [])
+  })
+})
+
+test('文件产物：设备路径（\\\\?\\、\\\\.\\、\\??\\）不收，哪怕指到根外的图', async () => {
+  await withRootAndOutside(async ({ root, outside }) => {
+    const img = join(outside, 'shot.png')
+    const tries = [`\\\\?\\${img}`, `\\\\.\\${img}`, `\\??\\${img}`]
+    for (const [i, file] of tries.entries()) {
+      const r = await makeWork(root, { title: `设备${i}`, text: '说明', file, now: day(i) })
+      assert.equal(r.ok, false, `${file} 不该被收`)
+      assert.match(r.note, /网络共享和设备路径不收/)
+    }
+    assert.deepEqual(await worksFiles(root), [])
+  })
+})
+
+test('文件产物：网络共享路径不收，也不去碰文件系统', async () => {
+  await withRootAndOutside(async ({ root }) => {
+    // 主机名用 .invalid：万一判断漏了，也连不到真主机。
+    const tries = [
+      '\\\\fakehost.invalid\\share\\x.png',
+      '//fakehost.invalid/share/x.png',
+      '\\??\\UNC\\fakehost.invalid\\share\\x.png',
+    ]
+    for (const [i, file] of tries.entries()) {
+      const t0 = Date.now()
+      const r = await makeWork(root, { title: `共享${i}`, text: '说明', file, now: day(i) })
+      assert.equal(r.ok, false, `${file} 不该被收`)
+      assert.match(r.note, /网络共享和设备路径不收/)
+      assert.ok(Date.now() - t0 < 2000, '拒绝应当在碰文件系统之前，不该等网络超时')
     }
     assert.deepEqual(await worksFiles(root), [])
   })
