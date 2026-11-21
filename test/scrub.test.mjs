@@ -58,6 +58,16 @@ test('只有标记的一步返回空串（意思是这一步她没有正文）',
   assert.equal(stripLeakedToolSyntax(''), '')
 })
 
+test('参数壳整段包住时剥壳留话（issue #166）', () => {
+  const raw = '<parameter name="text">我把窗关上了。</parameter>\n</invoke>'
+  assert.equal(stripLeakedToolSyntax(raw), '我把窗关上了。')
+  assert.equal(hasLeakedToolSyntax(raw), true)
+  // 正文中间提到不算壳，一个字都不动
+  const prose = '模板里写的是 <parameter name="text"> 这一段。'
+  assert.equal(stripLeakedToolSyntax(prose), prose)
+  assert.equal(hasLeakedToolSyntax(prose), false)
+})
+
 test('正常正文一个字符都不改', () => {
   const cases = [
     '他写了一句 a < b && c > d，还有 <div> 这种标签。',
