@@ -4,7 +4,8 @@
  * 这里钉的是三条边界：
  *   1. 只有三个值本身能落地（他 / 她 / TA），别的一概不写——猜错一次，她的整份身份文档就写错；
  *   2. 问过就记一笔，三十天内不再问；同一天问过还没答，也不重复弹；
- *   3. 人的选择落在 config.owner.pronoun 上，卡片接走时走的是同一条路（cardanswer）。
+ *   3. 人的选择落在 config.owner.pronoun 上，卡片接走时走的是同一条路（cardanswer）；
+ *   4. 卡被别的插件接走（RELAYED）时回执照实说问到了、送到哪儿、还没答，不报「没问上」。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -182,4 +183,86 @@ test('答完当场重写身份文档，不等到下一次派生', async () => wi
   const doc = readFileSync(selfDocPath(root), 'utf8')
   assert.ok(doc.length > 0, '答完应该已经落盘一份')
   assert.ok(doc.includes('她说的事和你记得的不一样时'), '新代词应该已经写进文档')
+}))
+
+/** 假宿主：活着的 agent、记下提问的宿主服务、换得掉的 bail（dsh-fish/card 那一声）。 */
+function fakeCardCtx(bail) {
+  const agent = { id: 'session-abc' }
+  const asked = []
+  const cards = []
+  const ctx = {
+    get: (name) => (name === 'agents'
+      ? { get: (id) => (id === 'session-abc' ? agent : undefined), list: () => [agent], roots: () => [agent] }
+      : undefined),
+    userQuestions: { ask: async (req) => { asked.push(req); return { answers: [] } } },
+    ...(bail ? { bail: (name, card) => { cards.push({ name, card }); return bail(name, card) } } : {}),
+    tools: { register: (spec) => { ctx.spec = spec; return () => {} } },
+  }
+  return { ctx, asked, cards }
+}
+
+const HER_EXEC = { session: { header: { id: 'session-abc' } }, agent: { session: { id: 'session-abc' } } }
+
+test('卡被接走（RELAYED）：照实说问到了、送到哪儿、还没答，不报「没问上」；ask-pronoun 照旧记一笔', async () => withRoot(async (root) => {
+  const { ctx, asked, cards } = fakeCardCtx(() => Promise.resolve({ via: 'QQ 私聊' }))
+  registerPronounAsk(ctx, { root })
+  const out = await ctx.spec.execute({ why: '想叫对' }, HER_EXEC)
+
+  assert.equal(out.ok, true, '卡送到了就是问到了')
+  assert.equal(out.via, 'QQ 私聊')
+  assert.equal(out.value, undefined, '还没答，不落值')
+  assert.equal(out.note, '问了，送到了QQ 私聊，还没答。')
+  const text = ctx.spec.output.render({}, out)[0].text
+  assert.equal(text, '[已问，送到了QQ 私聊，还没答]')
+  for (const s of [out.note, text]) {
+    assert.doesNotMatch(s, /没问/, '同一次里不能再说「没问上」')
+    assert.doesNotMatch(s, /[他她]|TA/, '回执里不写代词（1.0 起回执只在 withUse 里填 {T}，这两句没有 {T}）')
+  }
+  assert.equal(asked.length, 0, '接走了就不在会话里再弹一张')
+
+  const { events } = await readEvents(root)
+  const asks = events.filter((e) => e.type === 'meta' && e.text === 'ask-pronoun')
+  assert.equal(asks.length, 1, '事件流照旧记 ask-pronoun')
+  assert.equal(events.filter((e) => String(e.text ?? '').startsWith('pronoun:')).length, 0, '还没答，不记答案')
+  assert.equal(cards.length, 1)
+  assert.equal(cards[0].name, 'dsh-fish/card')
+  assert.equal(cards[0].card.id, `pronoun:${asks[0].id}`, '卡片 id 指回这一次问')
+  assert.equal(cards[0].card.detail, '想叫对')
+  assert.equal((await loadConfig(root)).config.owner.pronoun, '他', '没答就不改')
+}))
+
+test('卡被接走之后：当天再调说「今天刚问过」（和上一句对得上），答了按卡片那条路落地', async () => withRoot(async (root) => {
+  const { ctx, cards } = fakeCardCtx(() => Promise.resolve({ via: 'QQ 私聊' }))
+  registerPronounAsk(ctx, { root })
+  const first = await ctx.spec.execute({}, HER_EXEC)
+  assert.equal(first.ok, true, '第一次说的是问到了')
+  assert.match(first.note, /送到了QQ 私聊/)
+
+  const again = await ctx.spec.execute({}, HER_EXEC)
+  assert.equal(again.ok, false)
+  assert.match(again.note, /今天刚问过/)
+  assert.equal(cards.length, 1, '还没答的当天不再弹一张')
+
+  const asked = (await readEvents(root)).events.find((e) => e.type === 'meta' && e.text === 'ask-pronoun')
+  const r = await answerCard(root, { id: `pronoun:${asked.id}`, selected: ['她'] })
+  assert.equal(r.ok, true)
+  assert.equal((await loadConfig(root)).config.owner.pronoun, '她')
+
+  const later = await ctx.spec.execute({}, HER_EXEC)
+  assert.equal(later.ok, false)
+  assert.match(later.note, /答的是「她」/)
+  assert.equal(cards.length, 1)
+}))
+
+test('真没问上（没人接卡、会话里也弹不出来）：还是说「没问上」', async () => withRoot(async (root) => {
+  // 没人接卡，也没有 agents 注册表：askInChat 回 NO_AGENT
+  const { ctx, asked, cards } = fakeCardCtx(() => undefined)
+  delete ctx.get
+  registerPronounAsk(ctx, { root })
+  const out = await ctx.spec.execute({}, HER_EXEC)
+  assert.equal(out.ok, false)
+  assert.equal(out.via, undefined)
+  assert.equal(ctx.spec.output.render({}, out)[0].text, '[没问：这次没问上，等下次有机会再说。]')
+  assert.equal(cards.length, 1)
+  assert.equal(asked.length, 0)
 }))
