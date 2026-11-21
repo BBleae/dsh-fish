@@ -10,8 +10,8 @@
  *   6. 读回正文不留痕：账里不记、不写事件、桌上不会因此多出一行；
  *   7. 桌上只摆一件事实：十四天内动过的、还没弄完的；
  *   8. 坏账只当空，读永远不抛。
- *   9. file 带进来的文件按解开链接以后的真实路径判：她自己那几处（home/ works/ keepsakes/ diary/）
- *      里的什么都收，别处的只收图 / 声音 / 影像；网络共享和设备路径在碰文件系统之前就拒。
+ *   9. file 带进来的文件按解开链接以后的真实路径判：数据目录里面的什么都收（凭据文件除外），
+ *      屋外的只收图 / 声音 / 影像；网络共享和设备路径在碰文件系统之前就拒。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -391,9 +391,10 @@ test('文件产物：只有文件没有说明也算留下了', async () => {
 })
 
 // ---------------------------- 带进来的文件从哪儿来 ----------------------------
-// file 收的是「她做出来的那一份」：她自己屋子里的东西，或者画图 / 录音 / 剪辑工具
-// 输出的图、声音、影像。数据目录里别的文件、别处的普通文件都不是她做出来的，
-// 不该被搬进 works/。下面的「凭据」全是合成的假字符串。
+// file 收的是「她做出来的那一份」：数据目录里的东西不分扩展名都收（她手边有什么工具，
+// 就可能留下什么——图、声音、影像、代码、脚本、表格、幻灯片）；只有凭据文件（owner.json、
+// config.json、cookie 这类）不收。屋外的普通文件仍然不收，屋外的图 / 声音 / 影像照收。
+// 下面的「凭据」全是合成的假字符串。
 
 /** 一个临时的外层目录：里面一份数据根（data/）、一份根外的目录（elsewhere/）。 */
 async function withRootAndOutside(fn) {
@@ -509,6 +510,51 @@ test('文件产物：她自己屋子里的文件不管是什么类型都收', as
     const got = await readWorkText(root, { title: '一份方案' })
     assert.equal(got.kind, 'file')
     assert.equal(await readFile(join(root, got.file), 'utf8'), '{"steps":["先画轮廓"]}')
+  })
+})
+
+test('文件产物：数据目录里面到处的文件都收——代码、脚本、表格、幻灯片都行', async () => {
+  await withRootAndOutside(async ({ root }) => {
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    await mkdir(join(root, 'home', 'proj'), { recursive: true })
+    await writeFile(join(root, 'home', 'proj', 'main.py'), 'print(1)\n')
+    await writeFile(join(root, 'plan.docx'), Buffer.from([0x50, 0x4b, 3, 4]))
+    await writeFile(join(root, 'worksheet.xlsx'), Buffer.from([0x50, 0x4b, 3, 4]))
+    const cases = [
+      ['plan.docx', '一份文档'],
+      ['worksheet.xlsx', '一张表'],
+      ['home/proj/main.py', '自己写的小脚本'],
+    ]
+    for (const [i, [file, title]] of cases.entries()) {
+      const r = await makeWork(root, { title, text: '做成了文件', file, now: day(i) })
+      assert.equal(r.ok, true, `${file}：${r.note}`)
+      const got = await readWorkText(root, { title })
+      assert.equal(got.kind, 'file', `${file} 是普通文件，不是图`)
+      await closeWork(root, { title, now: day(i) })
+    }
+    const files = await worksFiles(root)
+    for (const ext of ['.docx', '.xlsx', '.py']) {
+      assert.ok(files.some((f) => f.endsWith(ext)), `works/ 里该有 ${ext}：${files.join(', ')}`)
+    }
+  })
+})
+
+test('文件产物：数据目录里的凭据文件不收（名字看着就是钥匙的）', async () => {
+  await withRootAndOutside(async ({ root }) => {
+    const { writeFile } = await import('node:fs/promises')
+    const cases = [
+      ['home/.env', 'TOKEN=1\n'],
+      ['home/cookies.txt', 'a=b\n'],
+      ['home/key.pem', '-----BEGIN FAKE-----\n'],
+      ['home/session-token.json', '{"token":"FAKE"}\n'],
+    ]
+    for (const [i, [name, body]] of cases.entries()) {
+      await writeFile(join(root, ...name.split('/')), body)
+      const r = await makeWork(root, { title: `钥匙${i}`, text: '说明', file: name, now: day(i) })
+      assert.equal(r.ok, false, `${name} 不该被收`)
+      assert.match(r.note, /凭据/, `${name} 该说清是凭据`)
+    }
+    assert.deepEqual(await worksFiles(root), [], 'works/ 里不该多出任何文件')
   })
 })
 
