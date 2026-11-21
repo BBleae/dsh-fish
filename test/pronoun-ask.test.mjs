@@ -231,6 +231,17 @@ test('卡被接走（RELAYED）：照实说问到了、送到哪儿、还没答�
   assert.equal((await loadConfig(root)).config.owner.pronoun, '他', '没答就不改')
 }))
 
+test('接卡的插件只回了空白 via：不算接走（卡还留在会话里），也不会漏出 undefined', async () => withRoot(async (root) => {
+  const { ctx, asked } = fakeCardCtx(() => Promise.resolve({ via: '   ' }))
+  registerPronounAsk(ctx, { root })
+  const out = await ctx.spec.execute({}, HER_EXEC)
+  const text = ctx.spec.output.render({}, out)[0].text
+  for (const s of [out.note, text]) assert.doesNotMatch(s, /undefined|null/, '不能把空值拼进给人看的话里')
+  assert.equal(asked.length, 1, '空白 via 当没接走：卡照常弹在会话上')
+  // 回执里那条「送到了哪儿」的兜底：via 空着时说的是「那边收下了」，不拼一个空串
+  assert.equal(ctx.spec.output.render({}, { ok: true, note: '', via: '' })[0].text, '[问了，等那边说]')
+}))
+
 test('卡被接走之后：当天再调说「今天刚问过」（和上一句对得上），答了按卡片那条路落地', async () => withRoot(async (root) => {
   const { ctx, cards } = fakeCardCtx(() => Promise.resolve({ via: 'QQ 私聊' }))
   registerPronounAsk(ctx, { root })
