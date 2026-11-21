@@ -318,7 +318,7 @@ qq_send_message, qq_get_unread_messages, qq_reply
 - [ ] 没有新增人格设置入口
 - [ ] 新输入口都过了 `lib/guard.js`
 - [ ] 加 / 改名 / 删了工具，`test/toolmap.test.mjs` 的 `MAP`（或 `lib/toolreg.js` 的 `SCENE_TOOLS`）跟着改了（见 §8）
-- [ ] `node --test 3147 全绿
+- [ ] `node --test` 3147 全绿
 - [ ] 界面文案没有「他」「四道门」「三道门」；给她看的文本里指主人的字写的是 `{T}` 而不是写死「他」（见 §4）
 - [ ] 改了 `EVENT_SCHEMA_VERSION` 的话，`CHANGELOG.md` 里写了迁移说明
 - [ ] 没动包名；真要动，先看下面「包名与装法」那节
