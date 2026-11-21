@@ -279,3 +279,25 @@ test('群房里她写东西不记 seen:；家里那间照记（issue #34）', as
     assert.equal(await seenCount(root), 1, '家里那条会话照记 seen:')
   })
 })
+
+
+// ---- 1.0.8（G）：refs 钉材料 ----
+test('refs：去重、去空、截 6 条；回执里回一遍，事件里原样落下', async () => {
+  await withRoot(async (root) => {
+    const ctx = fakeCtx()
+    registerCapture(ctx, { root })
+    const tool = ctx.regs.get('growth_commit')
+    const out = await tool.execute({
+      type: 'utterance',
+      text: '这句是想钉住刚才那份材料的。',
+      refs: ['ev_A', 'ev_A', '  ', 'ev_B', 'ev_C', 'ev_D', 'ev_E', 'ev_F', 'ev_G'],
+    })
+    assert.equal(out.ok, true)
+    assert.deepEqual(out.refs, ['ev_A', 'ev_B', 'ev_C', 'ev_D', 'ev_E', 'ev_F'])
+    const blocks = tool.output.render({}, out)
+    assert.ok(blocks.some((b) => b.text.includes('钉住了：ev_A、ev_B、ev_C')))
+    const { events } = await readEvents(root)
+    const ev = events.find((e) => e.id === out.id)
+    assert.deepEqual(ev.refs, ['ev_A', 'ev_B', 'ev_C', 'ev_D', 'ev_E', 'ev_F'])
+  })
+})

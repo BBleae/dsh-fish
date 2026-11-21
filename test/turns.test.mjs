@@ -294,6 +294,12 @@ test('来源判据：宿主拼的上下文和通知都不算人（2026-11-05）'
     { kind: 'repeat-tool-reminder', form: 'notice' },
     { kind: 'tool-goal', form: 'notice' },
     { kind: 'webhook', form: 'notice' },
+    // 2026-11-21（用户 m00612）：dsh-mnemon 的 runtime memory 注入漏网。
+    // kind 固定，form 是 memory-snapshot；两个都要挡住。
+    { kind: 'dsh-mnemon' },
+    { kind: 'dsh-mnemon', form: 'memory-snapshot' },
+    { kind: 'future-m', form: 'memory-snapshot' },
+    { kind: 'future-t', form: 'time-context' },
     // 宿主以后加的新上下文：kind 没见过，但 form 认得
     { kind: 'future-a', form: 'snapshot' },
     { kind: 'future-b', form: 'notice' },
@@ -519,6 +525,64 @@ test('她说出口的话：只收 text 块，reasoning 不算她说的话', () =
   assert.equal(assistantText({ message: { content: '字符串兜底' } }), '字符串兜底')
   assert.equal(assistantText({}), '')
   assert.equal(assistantText(null), '')
+})
+
+test('她说出口的话：末尾那对「告别 + 应答」不算她说的（记录层清掉，打日志）', () => {
+  const body = '这次没有一个人扛得住，只能全部一起重来。'
+  const logs = []
+  const said = assistantText(
+    {
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: `${body}\n\n明天再和你玩吧，我得出门了\n\n好，那你先忙。回来再接着聊。`,
+          },
+        ],
+      },
+    },
+    { log: (...args) => logs.push(args.join(' ')) },
+  )
+  assert.equal(said, body)
+  assert.equal(logs.length, 1)
+  assert.match(logs[0], /两个人的告别对白/)
+
+  // 正常的两段收尾照旧一个字不动
+  const normal = `${body}\n\n好了，你该走了。`
+  assert.equal(
+    assistantText({ message: { content: [{ type: 'text', text: normal }] } }, { log: () => {} }),
+    normal,
+  )
+})
+
+test('她自己接下去写「下一轮的时间头 + 整份提示词」，只留前面那句真话（记录层切掉，打日志）', () => {
+  const say = '不是我懂。评论区最上面两条就在那儿。'
+  const logs = []
+  const raw = [
+    say,
+    '',
+    'Time sampled while preparing turn 51, step 1: 2026-11-21T23:29:09+08:00[Asia/Shanghai]',
+    'Browser time zone for this call: unavailable. Ask the user to clarify.',
+    'Elapsed since the preceding model-visible message: 25m 20s.',
+    '',
+    '## 你是谁',
+    '你是一个……',
+    '## 现在',
+  ].join('\n')
+  const said = assistantText(
+    { message: { content: [{ type: 'text', text: raw }] } },
+    { log: (...args) => logs.push(args.join(' ')) },
+  )
+  assert.equal(said, say)
+  assert.equal(logs.length, 1)
+  assert.match(logs[0], /带回了宿主的时间头/)
+
+  // 正常提到这几个词（不是行首结构）不许切
+  const quoted = `${say}\n宿主注入的那行叫 Time sampled while preparing turn，我照着写就行。`
+  assert.equal(
+    assistantText({ message: { content: [{ type: 'text', text: quoted }] } }, { log: () => {} }),
+    quoted,
+  )
 })
 
 test('她屋里真人说一句 → turn/end 结账：turns +1、原话进 talkmem', async () => {

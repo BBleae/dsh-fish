@@ -881,7 +881,7 @@ test('attachIdentity 顺手挂上组装钩子与正文清洗钩子，且拆卸�
   }
   const r = attachIdentity(agent, root)
   assert.equal(r.ok, true)
-  assert.equal(calls.length, 7, 'assemble 钩子不是 system prompt 的段，不许占段位；七段是六个文本段加交接页')
+  assert.equal(calls.length, 7, 'assemble 钩子不是 system prompt 的段，不许占段位；七段含交接页')
   // 组装钩子（0.8.5 摘 persona-prefix）、正文清洗钩子（0.9.8 llm/stream）、空正文重试（1.0.2）各一条
   assert.deepEqual(hooks.map((h) => h.evt), ['system-prompt/assemble', 'llm/stream', 'agent/request-error'])
   for (const h of hooks) assert.equal(h.o?.prepend, true, '三个钩子都要排最外层')

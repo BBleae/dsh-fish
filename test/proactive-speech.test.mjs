@@ -99,6 +99,29 @@ async function run(proactive, turn) {
   return out
 }
 
+test('投递没落成：同一拍补一条 silent，drive-spend 不再是孤儿（2026-11-21）', async () => {
+  const root = await setup({})
+  const h = host()
+  const logs = []
+  const s = startScheduler(h.ctx, {
+    root,
+    sessionId: 's-main',
+    log: (...a) => logs.push(a.join(' ')),
+    // 真实 followWake 要等 10 分钟超时才会给 startSeq=-1；这里直接给结果，
+    // 专测「投递没落成」这一拍的记账。
+    followWake: () => ({ done: Promise.resolve({ startSeq: -1, why: 'no-start' }), off() {} }),
+  })
+  await s.tick()
+  await sleep(80)
+  const m = await metas(root)
+  assert.ok(m.includes('drive-spend'), '这一拍已经花了劲儿')
+  assert.ok(m.includes('proactive-silent'), '同一拍要补一条 silent，账才对得上')
+  assert.ok(logs.some((l) => l.includes('记一次静默')), '日志要说清这一拍记成静默了')
+  assert.ok(!logs.some((l) => l.includes('这一轮不记账')), '不能再留旧口径')
+  s.dispose()
+  clearWakeSection()
+})
+
 test('只调工具没写正文：这一轮留着，不折、不记开口', async () => {
   const r = await run({}, { tool: 'send_chat' })
   // 2026-11-17（用户 m03985）：动过手就不是空转，不能折掉；但也不算开口。

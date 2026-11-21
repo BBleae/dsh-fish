@@ -6,12 +6,14 @@
  *   ② 标记旁边还有真话：留真话，只去掉标记；
  *   ③ 正常正文里出现 `<` `>` 的，一个字符都不动；
  *   ④ 流被截断、标记没闭合的，从第一个残标切到行尾。
+ *   ⑤ 整段被 `<parameter name="…">…</parameter></invoke>` 包住的参数壳（issue #166）：
+ *      剥壳留话；正文中间提到、或者壳没收尾的，一个字符都不动。
  */
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { hasToolMarkup, stripToolMarkup } from '../lib/markup.js'
+import { hasToolMarkup, stripToolMarkup, stripToolShell } from '../lib/markup.js'
 import { assistantText } from '../lib/turns.js'
 
 /** issue #25 里真实的默认收尾标记（全角竖线 U+FF5C，不是半角 `|`） */
@@ -90,4 +92,36 @@ test('assistantText：标记和真话混在同一步时，真话照常留下', (
     assistantText({ message: { content: [{ type: 'text', text: `我把窗关上了。${CLOSE}` }] } }),
     '我把窗关上了。',
   )
+})
+
+/** issue #166 里真实漏出来的形状：没有 invoke 头，只有参数段 + 收尾 */
+const SHELL = '<parameter name="text">我把窗关上了。</parameter>\n</invoke>'
+
+test('参数壳：整段被包住时剥壳留话（issue #166）', () => {
+  assert.equal(stripToolShell(SHELL), '我把窗关上了。')
+  assert.equal(stripToolMarkup(SHELL), '我把窗关上了。')
+  // 带 invoke 头的完整壳也认
+  assert.equal(
+    stripToolMarkup('<invoke name="her_say"><parameter name="text">我把窗关上了。</parameter></invoke>'),
+    '我把窗关上了。',
+  )
+  // 收尾链长一点（parameter → invoke → calls）照样剥
+  assert.equal(stripToolShell('<parameter name="text">嗯。</parameter></invoke></calls>'), '嗯。')
+  // 空壳 = 这一步她没有正文
+  assert.equal(stripToolMarkup('<parameter name="text"></parameter></invoke>'), '')
+})
+
+test('参数壳：只在整段被包住时才动手', () => {
+  const prose = '他说 <parameter name="text"> 是模板里的占位符。'
+  assert.equal(stripToolMarkup(prose), prose)
+  const half = '<parameter name="text">这半截没收尾'
+  assert.equal(stripToolMarkup(half), half)
+  // `<div>` 和 `a < b` 那条底线不受影响
+  assert.equal(stripToolMarkup('<div>不是标记</div>'), '<div>不是标记</div>')
+})
+
+test('assistantText：参数壳不会被记成她的话（issue #166）', () => {
+  assert.equal(assistantText({ message: { content: [{ type: 'text', text: SHELL }] } }), '我把窗关上了。')
+  // content 是字符串兜底那条路也要过
+  assert.equal(assistantText({ message: { content: SHELL } }), '我把窗关上了。')
 })
