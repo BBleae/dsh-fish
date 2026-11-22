@@ -197,7 +197,7 @@ test('原理页给「立场」单独一张卡，且不再有「从计次到能�
   assert.ok(!c.includes("'从计次到能力'"))
 })
 
-test('立场之间会打架：后来的算数，判不出先后就两条都不要', () => {
+test('立场之间会打架：后来的算数；判不出先后就两条都留着，交给冲突块', () => {
   const basis = (text, since) => ({ id: `b_${Math.random().toString(36).slice(2)}`, text, since, status: 'active', mentions: 3, verified: 0 })
   const model = (bs) => ({ stage: 4, stageForced: false, beliefs: bs, scars: [] })
   // 同话题：早期「我绝不吃辣」+ 后来「我喜欢吃辣」→ 只留新的，并标 changedFrom
@@ -206,12 +206,44 @@ test('立场之间会打架：后来的算数，判不出先后就两条都不�
   assert.equal(r[0].kind, 'like')
   assert.equal(r[0].changedFrom, '我绝不吃辣。')
   assert.ok(stanceLine(r[0]).includes('这件事我改过口'))
-  // 时间相同：判不出先后 → 两条都不在
+  // 时间相同：判不出先后 → 两条都留，互指，不挂 changedFrom
   const same = buildStances(model([basis('我绝不吃辣。', '2026-10-01T00:00:00Z'), basis('我喜欢吃辣。', '2026-10-01T00:00:00Z')]))
-  assert.equal(same.length, 0)
-  // 时间缺失：同样不替她选
+  assert.equal(same.length, 2)
+  assert.ok(same.every((s) => s.conflictWith), '两条互相指认')
+  assert.ok(same.every((s) => s.changedFrom === undefined), '没改过口，不许标改口')
+  const fresh = stanceSection(same, { now: Date.parse('2026-10-02T00:00:00Z') })
+  assert.ok(fresh.includes('这两句对不上'))
+  assert.ok(fresh.includes('你还没定'))
+  assert.ok(fresh.includes('growth_commit'), '教她怎么收掉一边')
+  // 时间缺失：同样不替她选，两条都留
   const noTime = buildStances(model([basis('我绝不吃辣。'), basis('我喜欢吃辣。', '2026-10-20T00:00:00Z')]))
-  assert.equal(noTime.length, 0)
+  assert.equal(noTime.length, 2)
+  assert.ok(noTime.every((s) => s.conflictWith))
+})
+
+test('冲突的一方被后来的判断挤掉后，另一方不留悬空的 conflictWith', () => {
+  const basis = (text, since) => ({ id: `b_${Math.random().toString(36).slice(2)}`, text, since, status: 'active', mentions: 3, verified: 0 })
+  // A/B 判不出先后 → 互相指认；C 后来居上挤掉 A，B 的标记必须跟着清掉。
+  const r = buildStances({ stage: 4, stageForced: false, scars: [], beliefs: [
+    basis('我绝不吃辣。', '2026-10-01T00:00:00Z'),
+    basis('我喜欢吃辣。', '2026-10-01T00:00:00Z'),
+    basis('我宁愿吃辣。', '2026-10-20T00:00:00Z'),
+  ] })
+  assert.equal(r.length, 2)
+  assert.ok(r.every((s) => s.kind === 'like'))
+  assert.ok(r.every((s) => s.conflictWith === undefined), '旧冲突伙伴已不在清单里，不能再挂着')
+  assert.ok(!stanceSection(r).includes('这两句对不上'), '没有成对的冲突，就不摆冲突块')
+})
+
+test('组里挑代表：按时间取最新，不按传入顺序取最后一条', () => {
+  const b = (id, since) => ({ id, text: '我喜欢吃辣。', since, status: 'active', mentions: 5, verified: 0 })
+  // 故意把最旧的放在最后：代表句与 since 都不能跟着传入顺序退回旧日期。
+  const r = buildStances({ stage: 4, stageForced: false, beliefs: [
+    b('b1', '2026-10-20T00:00:00Z'),
+    b('b2', '2026-10-01T00:00:00Z'),
+  ], scars: [] })
+  assert.equal(r.length, 1)
+  assert.equal(r[0].since, '2026-10-20T00:00:00Z')
 })
 
 test('上限：内部 12 条、写进提示词 8 条', () => {
@@ -221,6 +253,7 @@ test('上限：内部 12 条、写进提示词 8 条', () => {
   for (let i = 0; i < 10; i++) many.push({ kind: 'never', text: `我不做第${i}种事。`, scars: 9 - i, mentions: 0, verified: 0 })
   const bullets = stanceSection(many).split(String.fromCharCode(10)).filter((x) => x.startsWith('- '))
   assert.equal(bullets.length, 8)
+  assert.ok(stanceSection(many).includes('还有 2 条没摆出来'), '排到 9 条以后的要留一句，不许静默消失')
 })
 
 // ---- 0.9.7 U2/U3：拒绝升格成立场（用户 m01175 担心"拒绝无限叠加"）----
@@ -364,12 +397,13 @@ test('「我喜欢…」和同一件事的拒绝才是反向：照旧后来的�
   }))
   assert.deepEqual(earlier.map((s) => s.kind), ['like'])
   assert.ok(stanceLine(earlier[0]).includes('这件事我改过口'))
-  // 比不出先后 → 两条都不进，不替她选
+  // 比不出先后 → 两条都留，交给冲突块，不替她选
   const tie = buildStances(model({
     beliefs: likes(['2026-10-02T10:00:00Z', '2026-10-05T10:00:00Z']),
     refusals: refusals(['2026-10-01T10:00:00Z', '2026-10-03T10:00:00Z', '2026-10-05T10:00:00Z']),
   }))
-  assert.equal(tie.length, 0)
+  assert.deepEqual(tie.map((s) => s.kind).sort(), ['like', 'refused'])
+  assert.ok(tie.every((s) => s.conflictWith))
 })
 
 test('升格之后「你拒绝过」不再重复摆同一件事', () => {

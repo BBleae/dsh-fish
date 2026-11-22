@@ -592,6 +592,35 @@ test('判断计数按原话去重：同一句话说三遍只算一条（issue #8
   assert.equal(m.solid.length, 1, '摆出来的列表里也只有一条')
 })
 
+// 2026-11-22（用户 m00360 第 6 条）：mentions 的小句窗口。
+// 长反思换个说法再提同一件事时，整句 Dice 过不了 0.6；但其中一个小句是对得上的。
+test('长反思里只有一个小句在说同一件事，也算又提了一次', () => {
+  const evs = [
+    ev('ev_long', 'utterance', 1, '今天想了很多，最后发现，我不喜欢被催。'),
+    ev('ev_short', 'utterance', 4, '我不喜欢被催。'),
+  ]
+  const m = deriveSelf(evs, { now: T0 + 5 * DAY_MS })
+  const b = m.beliefs.find((x) => String(x.text).startsWith('今天想了很多'))
+  assert.equal(b.mentions, 2, '自己那次 + 小句对上的一次')
+})
+
+// 2026-11-22（用户 m00360 第 6 条）：同一个 topic 标签跨天再提一次，不要求措辞相近。
+test('同一个 topic 跨天再提一次也算，换了说法照样算', () => {
+  const m = deriveSelf([
+    ev('ev_a', 'utterance', 1, '我不想再熬夜了。', { topic: '熬夜' }),
+    ev('ev_b', 'utterance', 4, '早睡这件事我认真想过，身体确实吃不消。', { topic: '熬夜' }),
+  ], { now: T0 + 5 * DAY_MS })
+  const a = m.beliefs.find((x) => String(x.text).startsWith('我不想再熬夜'))
+  assert.equal(a.mentions, 2, '同一件事跨天又提过一次')
+  // 同一天的两句不算：那是同一条判断的上下半句
+  const sameDay = deriveSelf([
+    ev('ev_c', 'utterance', 1, '我不想再熬夜了。', { topic: '熬夜' }),
+    ev('ev_d', 'utterance', 1, '早睡这件事我认真想过，身体确实吃不消。', { topic: '熬夜' }),
+  ], { now: T0 + 2 * DAY_MS })
+  const c = sameDay.beliefs.find((x) => String(x.text).startsWith('我不想再熬夜'))
+  assert.equal(c.mentions, 1, '同一天不算跨天')
+})
+
 // issue #98（2026-11-09，0.9.6 真机）：状态栏显示成「的称呼」「上切下来的一块」。
 // 她在解释「怎么称呼你」这件事时，句子里本来就有「称呼你 / 他名字」，
 // {1,8} 把后半句当成称呼；而状态栏取**最近一次**，于是她越解释，称呼越离谱。
