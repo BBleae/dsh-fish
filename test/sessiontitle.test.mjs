@@ -52,14 +52,15 @@ test('名字太长就截断，别把下拉撑破', () => {
   assert.equal(clipTitle('', 20), '')
 })
 
-test('请神下拉的标签不再回退到会话 id 尾巴', () => {
+test('请神下拉的标签不再回退到会话 id 尾巴', async () => {
   const client = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
   assert.ok(!client.includes('s.title || s.sessionId.slice(-8)'), '下拉里不能再拿 id 尾巴当名字')
   assert.ok(client.includes('possessName(s)'), '下拉应该走 possessName()')
   assert.ok(client.includes('还没起名字的对话'), '没名字时要说人话')
   assert.ok(!client.includes('现在上身：${possessActive.title || possessActive.sessionId}'), '现在上身也不能甩 id')
 
-  const observe = readFileSync(new URL('../lib/observe.js', import.meta.url), 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const observe = await readObserveSource()
   assert.ok(observe.includes("from './sessiontitle.js'"), '服务端要复用同一个取名函数')
   assert.ok(observe.includes('titleOfAgent(ctx, a)'), '/possession 返回的名字来自 session/title')
 

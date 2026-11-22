@@ -96,8 +96,9 @@ test('客户端：设置项、buildConfig、上限表都在', () => {
   assert.ok(src.includes('setBeliefsShown(Number(cfg.memory?.beliefsShown ?? 3))'), 'load 要读它')
 })
 
-test('观测台与身份文档同源：/memory 用 shownCount 而不是写死的常量', () => {
-  const src = fs.readFileSync(new URL('../lib/observe.js', import.meta.url), 'utf8')
+test('观测台与身份文档同源：/memory 用 shownCount 而不是写死的常量', async () => {
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const src = await readObserveSource()
   assert.ok(src.includes('shownCount(config?.memory?.beliefsShown ?? BELIEF_SHOWN)'))
   assert.ok(
     src.includes('personaBudget(model, { budget, withBans: model?.persona?.imported !== true, shown: shownCap, sleepKeep: config?.memory?.sleepKeep })'),

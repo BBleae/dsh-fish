@@ -199,7 +199,8 @@ test('observe：/update 路由注册了，且把版本号带给了客户端', as
   registerObserve(ctx, { root, version: 'v0.3.0' })
   assert.ok(registered.includes('/dsh-fish/update'), '/update 要注册')
   // 版本号要在 /state 的 meta 里（前端「当前版本」那行读的就是它）
-  const src = fs.readFileSync(new URL('../lib/observe.js', import.meta.url), 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const src = await readObserveSource()
   assert.ok(/meta:\s*\{[^}]*version:/.test(src), '/state 的 meta 里要有 version')
 })
 

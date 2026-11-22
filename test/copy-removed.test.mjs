@@ -39,7 +39,8 @@ test('客户端里没有文案页与覆盖层', async () => {
 })
 
 test('服务端没有 /copy 路由，也不再引 copy.js', async () => {
-  const ob = await readFile(OBSERVE, 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const ob = await readObserveSource()
   assert.ok(!ob.includes("'/copy'"), '不该再有 /copy 路由')
   assert.ok(!ob.includes("'/copy/source'"), '不该再有 /copy/source 路由')
   assert.ok(!ob.includes("from './copy.js'"), '不该再 import copy.js')

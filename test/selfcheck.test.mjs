@@ -100,7 +100,8 @@ test('源码守门：三处 readOwner 都必须 await（漏了就是上面那两
   const sc = await readFile(join(ROOT, 'lib', 'selfcheck.js'), 'utf8')
   assert.ok(sc.includes('const ow = await readOwner(root)'), '自检里读 owner 要 await')
 
-  const ob = await readFile(join(ROOT, 'lib', 'observe.js'), 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const ob = await readObserveSource()
   assert.ok(ob.includes('(await readOwner(root))?.cookie'), '/selfcheck 建 client 时要用真 cookie')
   assert.ok(!/cookie: readOwner\(root\)\?\.cookie/.test(ob), '不许留下没 await 的旧写法')
 
@@ -109,7 +110,8 @@ test('源码守门：三处 readOwner 都必须 await（漏了就是上面那两
 })
 
 test('源码守门：/owner POST 只认登录账号，不许覆盖领养人', async () => {
-  const ob = await readFile(join(ROOT, 'lib', 'observe.js'), 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const ob = await readObserveSource()
   assert.ok(ob.includes('await saveAccount(me, root)'), '「测试登录」成功时要记下登录账号')
   assert.ok(ob.includes('登录的是'), '存 cookie 之后要认一次，并在回执里说登录的是谁')
   assert.equal(

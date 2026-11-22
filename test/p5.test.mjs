@@ -236,7 +236,8 @@ test('观测台提交的每个顶层键都在 /config 白名单里（防漂移�
   const keys = [...client.slice(start, end).matchAll(/^ {8}([a-zA-Z]+):/gm)].map((m) => m[1])
   assert.ok(keys.length >= 10, `buildConfig() 只解析出 ${keys.length} 个顶层键，缩进可能变了`)
 
-  const server = await readFile(OBSERVE, 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const server = await readObserveSource()
   const m = server.match(/const allowed = \[([^\]]+)\]/)
   assert.ok(m, '找不到 /config 的白名单')
   const allowed = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1])

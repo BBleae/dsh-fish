@@ -48,7 +48,8 @@ test('三张原理图在包里，而且是完整的 svg', async () => {
 })
 
 test('出图走服务端白名单路由，客户端不内联图', async () => {
-  const ob = await readFile(OBSERVE, 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const ob = await readObserveSource()
   assert.ok(ob.includes("['/media', async (req, res)"), '必须有 /media 路由')
   // 2026-10-28：反馈页的交流群二维码也走这条白名单路由（只多放一个文件名，仍不做通用文件服务）。
   // 2026-11-14：原理页图片带 ?v= 版本号做缓存失效，路由要允许查询串。

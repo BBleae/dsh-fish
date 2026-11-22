@@ -280,7 +280,8 @@ test('界面与路由都接上了（别只写了个模块）', async () => {
   assert.match(c, /备份成一份文件/)
   assert.match(c, /从备份恢复/)
   assert.match(c, /pre-restore-/)
-  const o = await readFile(new URL('../lib/observe.js', import.meta.url), 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const o = await readObserveSource()
   assert.match(o, /\['\/backup\/restore'/)
   // 打包时把恢复上限也带进去（collectBackup(root, { restoreLimit })），还是这一个 root
   assert.match(o, /collectBackup\(root[,)]/)

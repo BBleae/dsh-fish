@@ -25,7 +25,8 @@ test('数字框：打字超范围后离开输入框会收敛回上下限', async
 })
 
 test('封面：lazyCover 从 view() 的 data 里取 pic', async () => {
-  const src = await readFile(OBSERVE, 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const src = await readObserveSource()
   // view() 返回 { ok, code, data:{ pic } }；直接读 v.pic 永远是 undefined，
   // 于是 /dsh-fish/cover/<BV> 一路 404，被 <img onError> 静默藏掉。
   assert.ok(src.includes('v?.data?.pic || v?.pic'), '要从 data 里取 pic')

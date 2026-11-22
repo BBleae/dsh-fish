@@ -28,8 +28,9 @@ test('关掉之后保存下来还是关着（不是被默认值盖回去）', ()
   assert.equal(cfg.dream.enabled, false)
 })
 
-test('三个开关都能从设置页存进去（白名单里有）', () => {
-  const observe = src('observe.js')
+test('三个开关都能从设置页存进去（白名单里有）', async () => {
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const observe = await readObserveSource()
   assert.match(observe, /'proactive', 'drive', 'interest', 'dream'/)
 })
 

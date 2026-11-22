@@ -484,6 +484,7 @@ test('轻量请求跳过历史房间（2026-11-18，m04207）', async () => {
   const core = await readFile(new URL('../lib/session-pressure.js', import.meta.url), 'utf8')
   assert.ok(core.includes('light = false'), 'view 接受 light')
   assert.ok(core.includes('if (light && candidate.id !== currentId) continue'), '轻量请求跳过历史房间')
-  const route = await readFile(new URL('../lib/observe.js', import.meta.url), 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const route = await readObserveSource()
   assert.ok(route.includes("options.get('light') === '1'"), '路由透传 light')
 })

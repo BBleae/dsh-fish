@@ -105,7 +105,8 @@ test('issue #64：定时工具只说她真的拿得到的那几个', async () =>
 })
 
 test('issue #64：/config 保存后无条件重写身份文档，不再只在 sendTools 变化时', async () => {
-  const src = await readFile(fileURLToPath(new URL('../lib/observe.js', import.meta.url)), 'utf8')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const src = await readObserveSource()
   assert.match(src, /await refreshSelfDoc\(root\)\.catch/, '保存后要无条件 refresh')
   assert.ok(!/sendTools[^\n]*refreshSelfDoc/.test(src), '不能只在 sendTools 变了才刷新')
 })

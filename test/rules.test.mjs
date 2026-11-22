@@ -257,7 +257,7 @@ test('rules.holdDays 真的接上了：一张申请挂几天算搁置跟着设�
 
 test('pendingOffer 的每个调用点都把 config 算出来的 limits 传进去', () => {
   // 只接一处的话，调度器以为还在等、会话里的卡却答不上（或者反过来）。
-  for (const f of ['scheduler.js', 'grant.js', 'cardanswer.js', 'observe.js']) {
+  for (const f of ['scheduler.js', 'grant.js', 'cardanswer.js', 'observe-state.js', 'observe-config.js']) {
     const src = readFileSync(new URL(`../lib/${f}`, import.meta.url), 'utf8')
     const calls = src.match(/pendingOffer\([^\n]*/g) || []
     assert.ok(calls.length > 0, `${f} 里应该有 pendingOffer 的调用`)

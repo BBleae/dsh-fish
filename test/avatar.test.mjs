@@ -21,8 +21,10 @@ import {
   saveAvatar,
 } from '../lib/avatar.js'
 
+import { readObserveSourceSync } from '../test-support/observe-source.mjs'
+
 const CLIENT = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
-const OBSERVE = fs.readFileSync(new URL('../lib/observe.js', import.meta.url), 'utf8')
+const OBSERVE = readObserveSourceSync()
 const AVATAR = fs.readFileSync(new URL('../lib/avatar.js', import.meta.url), 'utf8')
 
 const tmp = () => fs.mkdtempSync(join(os.tmpdir(), 'fish-avatar-'))

@@ -138,7 +138,7 @@ test('立场段是核心段：预算只有 1 也还在', () => {
   assert.ok(text.includes('我不想再看那些评论了'))
 })
 
-test('观测台字段：/memory 与 /state 都从 stance.js 取数', () => {
+test('观测台字段：/memory 与 /state 都从 stance.js 取数', async () => {
   const sum = stanceSummary([{ kind: 'never', text: 'x', backed: true }, { kind: 'like', text: 'y', backed: false }])
   assert.equal(sum.stanceCount, 2)
   assert.equal(sum.stanceNevers, 1)
@@ -146,7 +146,8 @@ test('观测台字段：/memory 与 /state 都从 stance.js 取数', () => {
   assert.equal(sum.stanceBacked, 1)
   assert.deepEqual(sum.stanceFirst, { kind: 'never', text: 'x' })
 
-  const observe = read('lib/observe.js')
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const observe = await readObserveSource()
   assert.ok(observe.includes("from './stance.js'"))
   assert.ok(/stanceCount:\s*buildStances\(m\)\.length/.test(observe), '/state 要有 stanceCount')
   assert.ok(observe.includes('...stanceSummary(buildStances(model))'), '/memory 要把摘要并进 sections')
@@ -165,8 +166,9 @@ test('立场三种写法：还没开始 / 走完 0 条 / 已有条数', () => {
   assert.ok(!c.includes('回应采纳'), '「回应采纳」这一行已经删掉')
 })
 
-test('/state 给出 stanceReady，且不再有 capabilityOf', () => {
-  const o = read('lib/observe.js')
+test('/state 给出 stanceReady，且不再有 capabilityOf', async () => {
+  const { readObserveSource } = await import('../test-support/observe-source.mjs')
+  const o = await readObserveSource()
   assert.ok(/stanceReady:\s*gatesDone\(m\)/.test(o), '/state 要给 stanceReady')
   assert.ok(!o.includes('capabilityOf'))
   assert.equal(fs.existsSync(new URL('../lib/capability.js', import.meta.url)), false)
