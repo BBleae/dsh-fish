@@ -309,7 +309,7 @@ test('别的插件说忙：日志写清是谁说的', async () => {
   clearWakeSection()
 })
 
-test('idleCountsSeen：「他来过」打断安静；默认不算', () => {
+test('idleCountsSeen：「他来过」打断安静；默认也算', () => {
   const now = Date.now()
   const events = [
     { type: 'utterance', text: 'x', ts: new Date(now - 30 * HOUR).toISOString() },
@@ -364,7 +364,7 @@ test('her_say 回执：配了 sendTools 照实说没发给任何人', async () =
 test('配置：夹紧、默认值，设置页只改一项时别的不丢', async () => {
   assert.deepEqual(proactiveConfig({}).sendTools, [])
   assert.equal(proactiveConfig({}).foldSilent, true)
-  assert.equal(proactiveConfig({}).idleCountsSeen, false)
+  assert.equal(proactiveConfig({}).idleCountsSeen, true)
   assert.deepEqual(proactiveConfig({ proactive: { sendTools: [' a ', '', null, 'b'] } }).sendTools, ['a', 'b'])
   assert.deepEqual(proactiveConfig({ proactive: { sendTools: 'a' } }).sendTools, [])
   const root = await setup({ sendTools: ['send_chat'], foldSilent: false, idleCountsSeen: true })

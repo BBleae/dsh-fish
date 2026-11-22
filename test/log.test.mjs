@@ -33,7 +33,7 @@ import {
 } from '../lib/log.js'
 import { DEFAULTS } from '../lib/settings.js'
 import { validateEvent } from '../lib/schema.js'
-import { readEvents } from '../lib/store.js'
+import { appendEvent, readEvents } from '../lib/store.js'
 import { withUse } from '../lib/use.js'
 import { addNote } from '../lib/note.js'
 import { makeAppointment } from '../lib/appoint.js'
@@ -442,4 +442,19 @@ test('导出的 meta 行：纯记账的原样留着，没有后半句的也不�
 
   const got = eventSection(buildBundle(root, { lines: 5, eventLines: 100 }))
   assert.deepEqual(got, lines)
+})
+
+// 2026-11-22 外部 issue：缺字段的调用被拒时，日志里以前只有 type=?，
+// 看不出「是漏了字段」还是「值写错了」——现场只能去翻会话日志。
+// 现在补一行 keys=…，把收到的键名原样摆出来。
+test('事件被校验拒收时，日志里带收到的键名', async () => {
+  const root = await tempRoot()
+  await assert.rejects(
+    () => appendEvent({ text: '没有 type 的一条', topic: '一件小事' }, { source: 'tool' }, root),
+    (e) => e.code === 'BAD_TYPE',
+  )
+  const line = tailLog(root).lines.find((l) => l.includes('事件被校验拒收'))
+  assert.ok(line, '拒收要留日志')
+  assert.match(line, /keys=(?:text,topic|topic,text)/)
+  assert.match(line, /source=tool/)
 })

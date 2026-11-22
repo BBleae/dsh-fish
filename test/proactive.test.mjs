@@ -26,7 +26,7 @@ import {
   lastSilentAt,
   SILENT_MARK,
   SILENT_MAX_PER_DAY,
-  SILENT_QUIET_HOURS,
+  SILENT_QUIET_MINUTES,
   idleHoursOf,
   countsForIdle,
   looseEnds,
@@ -90,8 +90,8 @@ test('六种不该开口的情况各有各的理由，别混成一句「不到�
   const used = [ev({ ts: old }), ev({ id: 'ev_t1', type: 'meta', text: `proactive-turn:${dateKey(new Date(now))}:1`, ts: new Date(now - 3 * 3_600_000).toISOString() }), ev({ id: 'ev_t2', type: 'meta', text: `proactive-turn:${dateKey(new Date(now))}:2`, ts: new Date(now - 2 * 3_600_000).toISOString() })]
   assert.match(proactiveState({ config: ON, events: used, now }).why, /上限/)
 
-  const cooling = [ev({ ts: old }), ev({ id: 'ev_t', type: 'meta', text: `proactive-turn:${dateKey(new Date(now))}:x`, ts: new Date(now - 30 * 60_000).toISOString() })]
-  assert.match(proactiveState({ config: ON, events: cooling, now }).why, /冷却/)
+  const cooling = [ev({ ts: old }), ev({ id: 'ev_s', type: 'meta', text: `seen:${new Date(now - 30 * 60_000).toISOString()}`, ts: new Date(now - 30 * 60_000).toISOString() })]
+  assert.match(proactiveState({ config: ON, events: cooling, now }).why, /刚说过话/)
 
   const fresh = [ev({ ts: new Date(now - 60_000).toISOString() })]
   assert.match(proactiveState({ config: ON, events: fresh, now }).why, /还不到时候/)
@@ -102,12 +102,14 @@ test('六种不该开口的情况各有各的理由，别混成一句「不到�
   assert.match(proactiveState({ config: { ...ON, window: win }, events: quiet, now }).why, /时段/)
 })
 
-test('配置读进来会夹紧（issue #67 后只剩频次与冷却）', () => {
-  const clamped = proactiveConfig({ proactive: { maxPerDay: 99, minIdleHours: -5, cooldownHours: 999 } })
+test('配置读进来会夹紧（2026-11-22 起安静时长按分钟）', () => {
+  const clamped = proactiveConfig({ proactive: { maxPerDay: 99, quietMinutes: 99999 } })
   assert.equal(clamped.maxPerDay, 12)
-  assert.equal(clamped.minIdleHours, 1)
-  assert.equal(clamped.cooldownHours, 240)
+  assert.equal(clamped.quietMinutes, 24 * 60)
+  assert.equal('cooldownHours' in clamped, false, '独立冷却已经删了')
   assert.equal('baseChance' in clamped, false, '概率那三个键已经删了')
+  // 老配置只有 minIdleHours：读的时候换算成分钟，不丢。
+  assert.equal(proactiveConfig({ proactive: { minIdleHours: 12 } }).quietMinutes, 720)
 })
 
 test('到点只判闸门，不再掷骰子：state 里没有 chance（issue #67）', () => {
@@ -122,27 +124,14 @@ test('到点只判闸门，不再掷骰子：state 里没有 chance（issue #67�
   assert.equal('chance' in s4, false)
 })
 
-test('刚有人跟她说过话：余温还在，冷却从 4 小时缩到 2 小时', () => {
+test('安静多久按分钟：30 分钟能开，6 小时仍挡；一条 seen 也会重新计时', () => {
   const now = Date.now()
-  const spoke = (h) => ev({ id: `ev_t_${h}`, type: 'meta', text: `proactive-turn:${dateKey(new Date(now - h * 3_600_000))}:1`, ts: new Date(now - h * 3_600_000).toISOString() })
-  const heard = ev({ id: 'ev_h', type: 'heard', text: '他说了一句', ts: new Date(now - 10 * 3_600_000).toISOString() })
-  const events = [heard, spoke(3)]
-
-  // 3 小时前刚开过口：默认冷却 4 小时 → 挡着。
-  const blocked = proactiveState({ config: ON, events, now })
-  assert.equal(blocked.ok, false)
-  assert.match(blocked.why, /冷却/)
-
-  // 10 小时前有人跟她说过话（24 小时内）→ 冷却缩到 2 小时 → 放行。
-  const warm = proactiveState({ config: ON, events, now, model: { stage: 1 } })
-  assert.equal(warm.ok, true, `余温没起作用：${warm.why}`)
-
-  // 冷透了（heard 超过 24 小时）还是 4 小时。
-  const cold = [
-    ev({ id: 'ev_h2', type: 'heard', text: '很久以前', ts: new Date(now - 30 * 3_600_000).toISOString() }),
-    spoke(3),
-  ]
-  assert.match(proactiveState({ config: ON, events: cold, now, model: { stage: 1 } }).why, /冷却/)
+  const halfHour = [ev({ ts: new Date(now - 30 * 60_000).toISOString() })]
+  assert.equal(proactiveState({ config: { proactive: { enabled: true, quietMinutes: 30 } }, events: halfHour, now }).ok, true)
+  assert.match(proactiveState({ config: ON, events: halfHour, now }).why, /刚说过话/)
+  // 「嗯」只写 seen：30 分钟的设置下，10 分钟前说过话，不能算安静够了。
+  const seen = [ev({ ts: new Date(now - 60 * 60_000).toISOString() }), ev({ id: 'ev_seen', type: 'meta', text: `seen:${new Date(now - 10 * 60_000).toISOString()}`, ts: new Date(now - 10 * 60_000).toISOString() })]
+  assert.match(proactiveState({ config: { proactive: { enabled: true, quietMinutes: 30 } }, events: seen, now }).why, /刚说过话/)
 })
 
 test('空手回合的正文只说事实和许可，不写「你应该」', () => {
@@ -391,8 +380,8 @@ test('醒来后没开口的那几次：不占当天额度，但单独限次数�
   const ok = proactiveState({ config: ON, events: three, now })
   assert.equal(ok.ok, true, `静默过也不该挡住下一次开口：${ok.why}`)
 
-  // 刚静默过 30 分钟：先隔一会儿，别让「醒来」变成机械动作。
-  const justNow = [...quiet, ev({ id: 'ev_s', type: 'meta', text: `${SILENT_MARK}${dk}:${now}`, ts: new Date(now - 30 * 60_000).toISOString() })]
+  // 刚静默过 29 分钟：先隔一会儿，别让「醒来」变成机械动作。
+  const justNow = [...quiet, ev({ id: 'ev_s', type: 'meta', text: `${SILENT_MARK}${dk}:${now}`, ts: new Date(now - 29 * 60_000).toISOString() })]
   assert.match(proactiveState({ config: ON, events: justNow, now }).why, /没开口/)
 
   // 今天已经静默满 SILENT_MAX_PER_DAY 次：停，但仍然没动 proactive-turn 的额度。
@@ -403,7 +392,30 @@ test('醒来后没开口的那几次：不占当天额度，但单独限次数�
   assert.equal(turnsToday(full, dk), 0)
   assert.equal(proactiveState({ config: ON, events: full, now }).why.length > 0, true)
   assert.match(proactiveState({ config: ON, events: full, now }).why, /太多次/)
-  assert.ok(SILENT_QUIET_HOURS >= 1, '静默间隔至少一小时，不然她会连着醒、连着不说')
+  assert.ok(SILENT_QUIET_MINUTES >= 15, '静默间隔至少十五分钟，不然她会连着醒、连着不说')
+})
+
+test('每天最多几次跟着设置走：上限 12 时两次还没到顶，上限 1 时到顶', () => {
+  const now = Date.now()
+  const dk = dateKey(new Date(now))
+  const turn = (h, id) => ev({ id, type: 'meta', text: `proactive-turn:${dk}:${now - h * 3_600_000}`, ts: new Date(now - h * 3_600_000).toISOString() })
+  const events = [ev({ ts: new Date(now - 3 * 3_600_000).toISOString() }), turn(1, 'ev_a'), turn(2, 'ev_b')]
+  // 两次已经开过口；上限 12 时不该被「到顶」拦住（会被安静时长挡住，但不是额度）。
+  assert.doesNotMatch(proactiveState({ config: { proactive: { enabled: true, maxPerDay: 12, quietMinutes: 30 } }, events, now }).why, /上限/)
+  // 上限 1 时同一批事件就该到顶。
+  assert.match(proactiveState({ config: { proactive: { enabled: true, maxPerDay: 1, quietMinutes: 30 } }, events, now }).why, /上限/)
+})
+
+test('「你来过也算打破安静」关掉：只认她真听见的话，不认 seen', () => {
+  const now = Date.now()
+  const seen = [
+    ev({ ts: new Date(now - 10 * 3_600_000).toISOString() }),
+    ev({ id: 'ev_seen', type: 'meta', text: `seen:${new Date(now - 60_000).toISOString()}`, ts: new Date(now - 60_000).toISOString() }),
+  ]
+  // 关掉：10 小时前那句才是最后一句话，30 分钟的安静时长已经满足。
+  assert.equal(proactiveState({ config: { proactive: { enabled: true, quietMinutes: 30, idleCountsSeen: false } }, events: seen, now }).ok, true)
+  // 默认开：1 分钟前的「嗯」也算他来过，不能算安静。
+  assert.match(proactiveState({ config: { proactive: { enabled: true, quietMinutes: 30 } }, events: seen, now }).why, /刚说过话/)
 })
 
 // ---- tick 里先看开关，再算 deriveSelf ----
