@@ -73,6 +73,23 @@ jobs:
       - name: 核对 npm pack 的内容
         run: node .github/pack-check.mjs
 
+  # 零依赖静态类型与客户端分片同步核对：package.json 仍保持全空依赖，
+  # CI 临时拉一次 typescript 对开启 // @ts-check 的核心中枢跑只读检查。
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: 核对客户端分片拼接一致性
+        run: node scripts/build-client.mjs --check
+
+      - name: 跑静态类型检查（零安装污染）
+        run: npx --yes -p typescript@5.8.3 tsc -p jsconfig.json --noEmit
+
   # 文档里的基线数字核对：README / AGENTS / CONTRIBUTING / PR 模板里写死的
   # 「全量 N 条」「基线 N」「N 个测试文件」必须等于实际跑出来的条数。
   # 2026-11-13 的教训——README 里 1674、1512 两处陈年错挂了快十个版本，

@@ -278,12 +278,12 @@
 ## 🧩 仓库结构、测试与插件扩展
 
 ```text
-lib/        插件本体，139 个模块。入口是 index.js，她看到的那段提示词在 persona.js，
-            她唯一的写入口是 capture.js，四条禁令在 rules.js，默认值只在 settings.js；
-            浏览器那半边（设置 → 大肥鱼）在同目录的 client.js
-test/       217 个测试文件，node --test 直接跑，全量 3178 条
+lib/        插件本体，162 个模块。入口是 index.js，她看到的那段提示词在 persona.js，
+            她唯一的写入口是 capture.js，四条禁令在 rules.js，默认值只在 settings.js，
+            契约类型在 types.d.ts；浏览器那半边在 client.js（分片源码在 lib/client/）
+test/       218 个测试文件，node --test 直接跑，全量 3184 条
 media/      README 与设置页用到的图
-scripts/    安装与迁移脚本（fix-legacy-link.mjs）
+scripts/    安装迁移与前端拼接脚本（fix-legacy-link.mjs、build-client.mjs）
 tools/      命令行自检（check-install.mjs，零依赖，插件没加载也能跑）
 docs/       面向使用者的补充说明（素材契约、插件约定、排查手册）
 ```

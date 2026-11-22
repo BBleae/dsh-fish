@@ -13,6 +13,7 @@
 - 原因不只是「省事」：DSH 插件多挂一个包，就可能把宿主正在用的旧核心包拖进依赖树，装完重启后宿主直接崩（本机踩过，见 `README.md` 里 tool.js 那段 `unsupported JSON schema` 的记录）。
 - 需要 HTTP → 用内置 `fetch`。需要签名 → 用内置 `crypto`。需要解压 → 用内置 `zlib`。需要子进程 → 用内置 `child_process`。**这些全都有，没有必须装包才能干的事。**
 - 测试只用 `node:test` + `node:assert`，不引测试框架。
+- 类型检查走零构建的 JSDoc + `jsconfig.json` + `lib/types.d.ts`（核心中枢开了 `// @ts-check`，CI 临时拉 `tsc --noEmit` 校验，不进 `devDependencies`）；前端 `lib/client.js` 按页签分片在 `lib/client/*.js`，改完分片跑零依赖的 `node scripts/build-client.mjs` 重产（`test/architecture.test.mjs` 与 CI `--check` 守着逐字节一致）。
 
 ## 2. 不许加人格设置界面
 
@@ -72,7 +73,7 @@
 node --test
 ```
 
-当前基线 **3178 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
+当前基线 **3184 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
 
 按环境挑跑法：
 
@@ -318,7 +319,8 @@ qq_send_message, qq_get_unread_messages, qq_reply
 - [ ] 没有新增人格设置入口
 - [ ] 新输入口都过了 `lib/guard.js`
 - [ ] 加 / 改名 / 删了工具，`test/toolmap.test.mjs` 的 `MAP`（或 `lib/toolreg.js` 的 `SCENE_TOOLS`）跟着改了（见 §8）
-- [ ] `node --test` 3178 全绿
+- [ ] `node --test` 3184 全绿
+- [ ] 改了 `lib/client/*.js` 或 `lib/session-pressure-formulas.js` 的话，跑过 `node scripts/build-client.mjs` 重产 `lib/client.js`
 - [ ] 界面文案没有「他」「四道门」「三道门」；给她看的文本里指主人的字写的是 `{T}` 而不是写死「他」（见 §4）
 - [ ] 改了 `EVENT_SCHEMA_VERSION` 的话，`CHANGELOG.md` 里写了迁移说明
 - [ ] 没动包名；真要动，先看下面「包名与装法」那节
