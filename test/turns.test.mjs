@@ -1782,6 +1782,41 @@ test('交接页没进她的上下文：这一轮结完不许清 carry，下一�
   }
 })
 
+// 2026-11-22（issue #171）：换房之后他还在旧房间里说话，家被认回旧窗口、carry 也被清掉，
+// 从此每一轮 handoffArmed 都是 false —— 旧写法照样记「没进上下文」，真机一晚上刷了 79 条。
+test('没摆过交接页的普通一轮：不记「没进上下文」', async () => {
+  const root = await tmpRoot({
+    turns: 5,
+    rotatedTo: 's-new-1',
+    rotatedAt: new Date(Date.now() - 60_000).toISOString(),
+  })
+  try {
+    await writeCfg(root, { chat: { rotateAfter: 40 } })
+    const logs = []
+    const { ctx } = fakeCtx()
+    const off = registerTurns(ctx, { root, log: (m) => logs.push(String(m)) })
+    try {
+      ctx.emit('session/event', session(HER_SESSION), humanMsg('还在旧房间里说一句'))
+      ctx.emit('session/event', session(HER_SESSION), TURN_END)
+      const st = await waitFor(async () => {
+        const s = await homeStatus(root)
+        return s.turns > 5 ? s : null
+      })
+      assert.equal(st.turns, 6, '轮次照常结')
+      await settled()
+      assert.equal(
+        logs.filter((m) => m.includes('交接页没进这一轮的上下文')).length,
+        0,
+        '这一轮根本没摆过交接页，不该报「没进上下文」',
+      )
+    } finally {
+      off()
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+  }
+})
+
 test('注销之后就不再记了', async () => {
   const root = await tmpRoot()
   try {
