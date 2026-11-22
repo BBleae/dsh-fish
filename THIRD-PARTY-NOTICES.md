@@ -29,6 +29,6 @@ Hidi & Renninger 的兴趣发展、Zajonc 的单纯曝光；Thaler & Shefrin 的
 
 ## 美术资源
 
-- `media/fish.jpg`：作者提供的大肥鱼原图经 AI 生成，随本仓库以同一许可（MIT）授权。
+- `media/banner.jpg`、`media/fish.jpg`：作者提供的大肥鱼原图经 AI 生成，随本仓库以同一许可（MIT）授权。
 - `media/principle-loop.svg`、`media/principle-memory.svg`、`media/principle-drive.svg`：本项目自绘。
 - 除此之外不含第三方美术资源——头像由用户自行上传（存在 `~/.dsh-fish/avatar.<ext>`）。
