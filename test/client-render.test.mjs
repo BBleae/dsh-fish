@@ -436,8 +436,8 @@ test('「安静多久才搭话」停手 700ms 再存，清空和越界不写盘�
     await app.advance(1000)
     await app.tab('成长')
     const input = () => inputOf(app.field('安静多久才搭话'), 'input')
-    const idle = () => app.posts().filter((c) => c.body?.proactive && 'minIdleHours' in c.body.proactive)
-      .map((c) => c.body.proactive.minIdleHours)
+    const idle = () => app.posts().filter((c) => c.body?.proactive && 'quietMinutes' in c.body.proactive)
+      .map((c) => c.body.proactive.quietMinutes)
 
     // 从 6 改成 12：删掉、打 1、打 12、点别处
     input().props.onChange({ target: { value: '' } })
@@ -460,51 +460,51 @@ test('「安静多久才搭话」停手 700ms 再存，清空和越界不写盘�
     await app.advance(1000)
     assert.deepEqual(idle(), [12])
 
-    // 停在半截：清空、0、25 都不写（服务端会把它们夹成 1 或 24，生效的就不是框里那个数）
-    for (const v of ['', '0', '25']) {
+    // 停在半截：清空、0、1441 都不写（服务端会把它们夹成 10 或 1440，生效的就不是框里那个数）
+    for (const v of ['', '0', '1441']) {
       input().props.onChange({ target: { value: v } })
       await app.settle()
       await app.advance(1000)
     }
-    assert.deepEqual(idle(), [12], '不在 1–24 里的一个都不写')
+    assert.deepEqual(idle(), [12], '不在 10–1440 里的一个都不写')
 
     // 小数：服务端写盘时取整，这里提交的和框里显示的都是取整后的数
-    input().props.onChange({ target: { value: '2.4' } })
+    input().props.onChange({ target: { value: '120.4' } })
     await app.settle()
     await app.advance(700)
-    assert.deepEqual(idle(), [12, 2])
-    assert.equal(String(input().props.value), '2')
+    assert.deepEqual(idle(), [12, 120])
+    assert.equal(String(input().props.value), '120')
   } finally { app.unmount() }
 })
 
-test('「安静多久才搭话」清空或打 25 之后离开输入框：框里收成 1 或 24，照框里的数存一次', async () => {
+test('「安静多久才搭话」清空或打 2000 之后离开输入框：框里收成 10 或 1440，照框里的数存一次', async () => {
   const app = await mount()
   try {
     await app.advance(1000)
     await app.tab('成长')
     const input = () => inputOf(app.field('安静多久才搭话'), 'input')
-    const idle = () => app.posts().filter((c) => c.body?.proactive && 'minIdleHours' in c.body.proactive)
-      .map((c) => c.body.proactive.minIdleHours)
+    const idle = () => app.posts().filter((c) => c.body?.proactive && 'quietMinutes' in c.body.proactive)
+      .map((c) => c.body.proactive.quietMinutes)
 
-    // 清空，再点别处：Num 离开输入框时按上下限收一次，空框落到下限 1
+    // 清空，再点别处：Num 离开输入框时按上下限收一次，空框落到下限 10
     input().props.onChange({ target: { value: '' } })
     await app.settle()
     input().props.onBlur({ target: { value: '' } })
     await app.settle()
-    assert.equal(String(input().props.value), '1', '框里收成下限')
+    assert.equal(String(input().props.value), '10', '框里收成下限')
     await app.advance(699)
     assert.deepEqual(idle(), [], '清空那一下不写，离开输入框也是停手 700ms 再存')
     await app.advance(1)
-    assert.deepEqual(idle(), [1], '存的是框里显示的那个数')
+    assert.deepEqual(idle(), [10], '存的是框里显示的那个数')
 
-    // 打 25，再点别处：收成上限 24，存的也是 24
-    input().props.onChange({ target: { value: '25' } })
+    // 打 2000，再点别处：收成上限 1440，存的也是 1440
+    input().props.onChange({ target: { value: '2000' } })
     await app.settle()
-    input().props.onBlur({ target: { value: '25' } })
+    input().props.onBlur({ target: { value: '2000' } })
     await app.settle()
-    assert.equal(String(input().props.value), '24', '框里收成上限')
+    assert.equal(String(input().props.value), '1440', '框里收成上限')
     await app.advance(700)
-    assert.deepEqual(idle(), [1, 24], '25 不写，收成的 24 存一次')
+    assert.deepEqual(idle(), [10, 1440], '2000 不写，收成的 1440 存一次')
   } finally { app.unmount() }
 })
 

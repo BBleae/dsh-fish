@@ -29,7 +29,7 @@ test('从来没主动过：从出生那一刻算起，不是永远停在 0.00', 
 test('刚出生就动过：出生锚点让位给最近那次行动', () => {
   const r = driveOf({ events: [{ type: 'seed', ts: NOW - 11 * 24 * HOUR }, spend(0.5)], now: NOW })
   assert.equal(r.ready, false)
-  assert.match(r.why, /两小时/)
+  assert.match(r.why, /还没攒够/)
 })
 
 test('出生很久、一直没机会：攒到顶也是 1.00，不超过阈值语义', () => {
@@ -38,10 +38,11 @@ test('出生很久、一直没机会：攒到顶也是 1.00，不超过阈值语
   assert.equal(r.ready, true)
 })
 
-test('刚动过：两小时之内一律不动', () => {
+test('刚动过：不再有写死的两小时硬闸，只按时间攒', () => {
   const r = driveOf({ events: [spend(0.5)], now: NOW })
   assert.equal(r.ready, false)
-  assert.match(r.why, /两小时/)
+  assert.match(r.why, /还没攒够/)
+  assert.equal(DRIVE.minGapMs, undefined, '两小时硬闸已删除')
 })
 
 test('底噪按小时线性长：5 小时还没到，10 小时到了', () => {

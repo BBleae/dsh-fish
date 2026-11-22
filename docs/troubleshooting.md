@@ -161,3 +161,27 @@ turns · 正文里带回了宿主的时间头，记她的话时从那儿切掉�
 侧栏正文里那一整段仍然在（界面层不清洗，切错会把真正文删给你看），但 `events.jsonl`、`talk-recent`、下一轮提示词里不再有它。已经写进去的旧 `utterance` 不会自动改——那是你和她的历史，插件只追加、不改写。旧版 `talk-recent.json.corrupt.*` 里也见过同类时间头，同样的处理。
 
 **为什么不再收紧一点**：把「正文里出现两个 `## ` 标题」也当成判据会误伤她自己的日记式长回复；这类漂移本来量就很小（真机量到 1 次）。先把结构最硬、误伤为零的那一条钉住，其余只留日志。
+
+---
+
+## `growth_commit` 少了 `type`，回执却说「未知事件类型：」（1.0.8）
+
+**现象**：她调 `growth_commit` 时参数里没带 `type`，回执是「没记下：未知事件类型：（允许：seed/utterance/…）」，日志里只剩一行
+
+```
+[warn] 事件被校验拒收： type=? source=tool 未知事件类型：
+```
+
+调用方看到「未知事件类型」只会以为这个类型不被支持，不会想到自己是漏了必填字段，重发时照旧不带——几句话就这么丢了；日志里也看不出「到底收到了哪些键」。
+
+**根因**：`lib/tool.js` 的 `defineTool` 在 npm 安装这条路上是个恒等函数（为什么绕开宿主，见那个文件头），而 DSH 的参数校验只长在宿主 `defineTool` 的 execute 包装里。于是工具定义里写的 `required: ["type","text"]` **从来没有执行过**，缺字段的调用一路走到 `lib/schema.js` 的 `validateEvent`，才以「未知事件类型」收场。会话记录里 `tool/call.arguments` 的原文就没有 `type`，所以也不是宿主吃键。
+
+**这一版做了什么**：① `lib/capture.js` 的 execute 在任何读盘之前先拦一道，缺 `type` 就返回「这次没收到 type（收到的键：confidence / text / topic），所以没写。重发时把 type 写上：utterance / revise / …」——只摆收到的键名，不回显她记了什么；② `lib/store.js` 那条 warn 补了 `keys=…`（空对象写「（空对象）」，不是对象就写它的类型），以后别的字段漏了也能一眼看出来。
+
+**已知 / 有意，这一版没做**：那层 `required` 对**其余工具**依然不生效（`bili_speak`、`ask_owner`、`her_dream`、`bili_look`、`bili_sub`、`her_leave`、`bring_back` 也各写了必填）。原因是改在公共出口（`lib/use.js` 的 `withUse`）会让**所有**工具在缺参数时改成抛错，而 19 个工具现在全都用返回值报失败、且 `output.schema` 形状各不相同——那是一次口径统一，不是补一个洞，得单独一轮做，还得同步改文案和测试。所以这一版只堵最贵的这一个（写事件流的那条），其余靠各工具自己的空值判断兜着：
+
+- `her_leave` 缺 `text` → 「空白的，没留。」
+- `ask_owner` 缺 `question` → 「把想问的那句话写出来。」
+- `her_dream` 缺 `refs` → 由 `DREAM_NEEDS_REF` 挡
+
+**这些是有意留着的边界，不是漏掉的**：不改也不会写坏数据；代价只是同一故障有几种说法，而且写盘类工具缺字段时不会走到 `appendEvent`，`keys=` 那行也就不会留。**什么时候再收口**：再出现一次「缺参数静默写坏/写空」、或加工具/加字段变频繁、或外部再报同类。收口时也不必一步做到公共出口——照 `growth_commit` 的写法给 5 个写盘类工具（`her_leave`、`her_dream`、`bring_back`、`ask_owner`、`bili_speak`）各加一道入口判断就够了；读盘类（`bili_look`、`bili_sub`）不用管。

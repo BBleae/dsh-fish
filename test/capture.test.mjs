@@ -301,3 +301,31 @@ test('refs：去重、去空、截 6 条；回执里回一遍，事件里原样�
     assert.deepEqual(ev.refs, ['ev_A', 'ev_B', 'ev_C', 'ev_D', 'ev_E', 'ev_F'])
   })
 })
+
+// ---- 2026-11-22 外部 issue：缺 type 时不再说「未知事件类型」 ----
+// 根因：我们的 defineTool 是恒等函数（见 lib/tool.js），parameters 里的 required
+// 在宿主那边不生效，缺字段的调用会一路走到 schema.js 的 validateEvent 才被拒。
+// 那句「未知事件类型：」把「漏了必填字段」说成了「值不认识」——调用方不会想到
+// 自己漏了 type，重试时照旧不带。现在在 execute 入口先拦，把收到的键名摆出来。
+test('growth_commit 缺 type：回执说清没收到 type 和收到的键，且一个字都不写', async () => {
+  await withRoot(async (root) => {
+    const ctx = fakeCtx()
+    registerCapture(ctx, { root })
+    const tool = ctx.regs.get('growth_commit')
+
+    // 报告人的现场：参数里有 text / topic / confidence，就是没有 type
+    const out = await tool.execute({ confidence: 0.85, text: '一句没有 type 的话。', topic: '一件小事' })
+    assert.equal(out.ok, false)
+    assert.match(out.note, /没收到 type/)
+    assert.match(out.note, /收到的键：confidence \/ text \/ topic/)
+    assert.match(out.note, /utterance/)
+    assert.doesNotMatch(out.note, /未知事件类型/)
+
+    // 一个键都没有时也要说清楚，别只留一个空括号
+    const empty = await tool.execute({})
+    assert.match(empty.note, /收到的键：空/)
+
+    const { events } = await readEvents(root)
+    assert.equal(events.filter((e) => e.type !== 'meta').length, 0, '缺 type 时一次都不写')
+  })
+})
