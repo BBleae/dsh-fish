@@ -39,7 +39,7 @@
 - 🌊 **[Paired Single-Session Companion Architecture: `mochi-fish/fish-sessionless`](https://github.com/mochi-fish/fish-sessionless)**
 
 > [!NOTE]
-> **Current Version: `1.0.7`**. Canonical documentation is maintained in [Simplified Chinese (`README.md`)](./README.md), with per-version release notes in `RELEASE-NOTES-*.md` and [CHANGELOG.md](./CHANGELOG.md).
+> **Current Version: `1.0.8`**. This release tightens who counts as her — session id instead of working directory — records *who said what* in the event stream, keeps stances from disappearing silently, and closes three writing-layer leaks (prompt echo, tool-parameter shells, invented lines for the other side). Canonical documentation is maintained in [Simplified Chinese (`README.md`)](./README.md), with per-version release notes in `RELEASE-NOTES-*.md` and [CHANGELOG.md](./CHANGELOG.md).
 
 ---
 
