@@ -1512,10 +1512,12 @@ test('换会话之后人还在旧的那条里说话 → 屋子认回它，轮数
       })
       assert.equal(h.sessionId, HER_SESSION, '屋子该认回他实际在说话的那条')
       assert.equal(h.turns, 1, '轮数接着数，不该停')
-      // 认回来之后这条会话不再是"换下来的"，carry 也不该再粘一遍
+      // 认回来之后这条会话不再是"换下来的"，但 carry 留着——他随后可能才搬进
+      // rotatedTo 那间，那时还要把交接页摆一次（2026-11-22，issue #171）。
       const raw = JSON.parse(await readFile(join(paths(root).root, 'home.json'), 'utf8'))
       assert.equal(raw.rotatedFrom, undefined)
-      assert.equal(raw.carry, undefined)
+      assert.deepEqual(raw.carry, [{ me: '上次说到这', her: '嗯' }], 'carry 留着给新房')
+      assert.equal(handoffArmed(HER_SESSION), false, '旧窗口不摆交接页')
     } finally {
       off()
     }
@@ -1727,7 +1729,8 @@ test('轮换后他先回旧窗口、随后搬进新会话 → 屋子跟到新会
       let raw = JSON.parse(await readFile(join(paths(root).root, 'home.json'), 'utf8'))
       assert.equal(raw.rotatedFrom, undefined, '认回旧窗口后不再记着它')
       assert.equal(raw.rotatedTo, 's-new-1', 'rotatedTo 要留着——他可能还会搬过去')
-      assert.equal(raw.carry, undefined)
+      assert.equal(raw.carry, '## 上次我们说到这\n- 旧话', 'carry 留着给新房（issue #171）')
+      assert.equal(handoffArmed(HER_SESSION), false, '旧窗口不摆交接页')
 
       // 第二步：他换到轮换建出来的新房间里说话（真机上这段聊了一整夜）
       ctx.emit('session/event', session('s-new-1'), humanMsg('我换到新房间了'))
@@ -1744,6 +1747,63 @@ test('轮换后他先回旧窗口、随后搬进新会话 → 屋子跟到新会
       off()
     }
   } finally {
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+  }
+})
+
+// 2026-11-22（issue #171）：上一条守的是「家跟过去」；这一条守交接页——
+// 他先回旧房说话时 carry 不能被认回时丢掉，等真搬进 rotatedTo 那间，
+// 第一轮要把「上次说到这」摆一次，看到之后才撤。
+test('先回旧房、隔一阵再进新房 → 交接页补摆一次（issue #171）', async () => {
+  resetHandoff()
+  const root = await tmpRoot()
+  try {
+    await writeCfg(root, { chat: { rotateAfter: 40 } })
+    await writeAtomic(
+      join(paths(root).root, 'home.json'),
+      JSON.stringify(
+        {
+          wsId: 'ws-1',
+          sessionId: 's-new-1',
+          createdAt: new Date(Date.now() - 60_000).toISOString(),
+          turns: 0,
+          rotatedFrom: HER_SESSION,
+          rotatedTo: 's-new-1',
+          rotatedAt: new Date(Date.now() - 60_000).toISOString(),
+          carry: '## 上次我们说到这\n- 还没说完的话',
+        },
+        null,
+        2,
+      ),
+    )
+    const { ctx } = fakeCtx()
+    const off = registerTurns(ctx, { root, log: () => {} })
+    try {
+      // 第一步：换房后他先回旧窗口说了一句——认回旧会话，页不在这里摆。
+      ctx.emit('session/event', session(HER_SESSION), humanMsg('我先在旧的这里说一句'))
+      ctx.emit('session/event', session(HER_SESSION), TURN_END)
+      await waitFor(async () => {
+        const st = await homeStatus(root)
+        return st.sessionId === HER_SESSION && st.turns > 0 ? st : null
+      })
+      await settled()
+      assert.equal(handoffArmed(HER_SESSION), false, '旧窗口不摆交接页')
+
+      // 第二步：隔了一阵他才搬进新房——第一轮把交接页摆出来，看到之后撤。
+      ctx.emit('session/event', session('s-new-1'), humanMsg('我搬过来了'))
+      await waitFor(async () => handoffArmed('s-new-1'))
+      markHandoffShown('s-new-1')
+      ctx.emit('session/event', session('s-new-1'), TURN_END)
+      const gone = await waitFor(async () => {
+        const raw = JSON.parse(await readFile(join(paths(root).root, 'home.json'), 'utf8'))
+        return raw.sessionId === 's-new-1' && !('carry' in raw) ? raw : null
+      })
+      assert.equal(gone.carry, undefined, '补摆过一次之后才撤')
+    } finally {
+      off()
+    }
+  } finally {
+    resetHandoff()
     await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 })
@@ -1842,6 +1902,41 @@ test('交接页没进她的上下文：这一轮结完不许清 carry，下一�
     }
   } finally {
     resetHandoff()
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+  }
+})
+
+// 2026-11-22（issue #171）：换房之后他还在旧房间里说话，家被认回旧窗口、carry 也被清掉，
+// 从此每一轮 handoffArmed 都是 false —— 旧写法照样记「没进上下文」，真机一晚上刷了 79 条。
+test('没摆过交接页的普通一轮：不记「没进上下文」', async () => {
+  const root = await tmpRoot({
+    turns: 5,
+    rotatedTo: 's-new-1',
+    rotatedAt: new Date(Date.now() - 60_000).toISOString(),
+  })
+  try {
+    await writeCfg(root, { chat: { rotateAfter: 40 } })
+    const logs = []
+    const { ctx } = fakeCtx()
+    const off = registerTurns(ctx, { root, log: (m) => logs.push(String(m)) })
+    try {
+      ctx.emit('session/event', session(HER_SESSION), humanMsg('还在旧房间里说一句'))
+      ctx.emit('session/event', session(HER_SESSION), TURN_END)
+      const st = await waitFor(async () => {
+        const s = await homeStatus(root)
+        return s.turns > 5 ? s : null
+      })
+      assert.equal(st.turns, 6, '轮次照常结')
+      await settled()
+      assert.equal(
+        logs.filter((m) => m.includes('交接页没进这一轮的上下文')).length,
+        0,
+        '这一轮根本没摆过交接页，不该报「没进上下文」',
+      )
+    } finally {
+      off()
+    }
+  } finally {
     await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 })
