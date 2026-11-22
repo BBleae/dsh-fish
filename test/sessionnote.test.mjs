@@ -10,6 +10,7 @@ import { join } from 'node:path'
 
 import { appendNote, queueNote, takeNotes, deliverQueued } from '../lib/sessionnote.js'
 import { registerIdentity } from '../lib/identity.js'
+import { rememberHerSession } from '../lib/restrict.js'
 
 function tmp() {
   return mkdtempSync(join(tmpdir(), 'fish-note-'))
@@ -135,6 +136,8 @@ test('registerIdentity：她家那条会话一起来，就把排队的话补进�
     const un = registerIdentity(ctx, { root, herDir, log: () => {} })
     assert.equal(typeof handler, 'function')
 
+    // 2026-11-22 起按会话 id 认人：她家那条的 id 先记进台账。
+    rememberHerSession('session-home')
     const agent = fakeAgent({ id: 'session-home', cwd: herDir })
     handler({ agent })
     // deliverQueued 是 void 的，等一拍让它跑完

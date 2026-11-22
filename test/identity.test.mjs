@@ -65,6 +65,7 @@ import { legacySelfDocPath, selfDocPath } from '../lib/selfdoc.js'
 import { armHandoff, disarmHandoff, handoffShown, resetHandoff } from '../lib/handoff.js'
 import { notesPath } from '../lib/note.js'
 import { paths } from '../lib/store.js'
+import { rememberHerSession, resetHerSessions } from '../lib/restrict.js'
 import { DEFAULTS } from '../lib/settings.js'
 import { BELIEF_SHOWN, SELF_DOC_BUDGET } from '../lib/persona.js'
 
@@ -389,6 +390,8 @@ test('issue #110：轮边界才丢快照（user/message、turn/end），同轮�
       return () => {}
     },
   }
+  // 2026-11-22 起按会话 id 认人：这条是她建出来的，先记进台账。
+  rememberHerSession('session-a')
   registerIdentity(ctx, { root, herDir: join(root, 'her'), log: () => {} })
   assert.equal(typeof handlers['session/event'], 'function', '必须监听轮边界')
 
@@ -444,6 +447,47 @@ test('registerIdentity：只给她那个 agent 挂（按 cwd 判），别人不�
 
   assert.equal(mine.length, 7, '她那条会话必须挂上（身份 + 处境 + 手边 + 旧话 + 本子 + 交接页 + 规矩七段）')
   assert.equal(others.length, 0, '用户自己的会话不许挂')
+})
+
+// 2026-11-22（外部反馈，DSH Go 手机端）：他把会话开在「大肥鱼的家」这个工作区里，
+// 旧的 cwd 判据把他整条会话当成了她——工具面收窄，连她的身份提示词也挂上了。
+test('registerIdentity：他开在她工作区里的会话（有 id、不在台账）不挂身份', () => {
+  resetIdentityCache()
+  resetHerSessions()
+  const root = tmp()
+  const herDir = join(root, 'home')
+  fs.mkdirSync(herDir, { recursive: true })
+  fs.writeFileSync(selfDocPath(root), '我是她', 'utf8')
+
+  let handler = null
+  const ctx = {
+    on: (evt, fn) => {
+      if (evt === 'agent/created') handler = fn
+      return () => {}
+    },
+  }
+  registerIdentity(ctx, { root, herDir, log: () => {} })
+  assert.equal(typeof handler, 'function')
+
+  rememberHerSession('her-1')
+  const hers = []
+  handler({
+    agent: {
+      session: { header: { id: 'session-her-1', cwd: herDir } },
+      ctx: { systemPrompt: { section: (o) => hers.push(o) } },
+    },
+  })
+  const his = []
+  handler({
+    agent: {
+      session: { header: { id: 'session-his-1', cwd: herDir } },
+      ctx: { systemPrompt: { section: (o) => his.push(o) } },
+    },
+  })
+
+  assert.equal(hers.length, 7, '她在台账里，照常挂')
+  assert.equal(his.length, 0, '同一个目录里他的会话一条都不许挂')
+  resetHerSessions()
 })
 
 test('registerIdentity：ctx.on 不可用时返回空函数，不抛', () => {

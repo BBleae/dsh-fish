@@ -13,9 +13,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { HER_TOOLS, currentToolSurface, currentAllowTools, isHerAgent, knownToolNames, ownLayerNames, registerToolRestrict, rememberFromView, rememberKnownTools, readRestrictState, describeRestrict, toolSurfaceText, toolSurfaceFor, outsideSurfaceText, visibleToolsOf, foldedRecallNote, blockedTools, forgetBlockedTools, recheckToolRestrict } from '../lib/restrict.js'
+import { HER_TOOLS, currentToolSurface, currentAllowTools, isHerAgent, knownToolNames, ownLayerNames, registerToolRestrict, rememberFromView, rememberKnownTools, readRestrictState, describeRestrict, toolSurfaceText, toolSurfaceFor, outsideSurfaceText, visibleToolsOf, foldedRecallNote, blockedTools, forgetBlockedTools, recheckToolRestrict, asHerSession, rememberHerSession, resetHerSessions, seedHerSessions } from '../lib/restrict.js'
 import * as restrictMod from '../lib/restrict.js'
 import { wishesOf } from '../lib/wish.js'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 /** 一个够用的假插件 ctx：能 on('agent/created')，也能被我们主动触发。 */
 function fakeCtx() {
@@ -83,7 +86,8 @@ test('清单里她该有的工具都在，且不含危险口子', () => {
   }
 })
 
-test('isHerAgent 只认她的屋子，不认别的目录', () => {
+test('没有会话 id 时（老宿主）才按 cwd 认她的屋子', () => {
+  resetHerSessions()
   const her = 'C:\\Users\\someone\\.dsh-fish\\home'
   assert.equal(isHerAgent({ session: { header: { cwd: her } } }, her), true)
   // 末尾斜杠不该影响判断（任何平台）
@@ -96,6 +100,82 @@ test('isHerAgent 只认她的屋子，不认别的目录', () => {
   // 拿不到 cwd 时一律不放行（宁可漏收窄，也不误伤别人的会话）
   assert.equal(isHerAgent({}, her), false)
   assert.equal(isHerAgent({ session: {} }, her), false)
+})
+
+// 2026-11-22（外部反馈，DSH Go 手机端）：他把主会话的工作区也设成了「大肥鱼的家」，
+// 于是那条会话 cwd 与她一样，被当成她收窄了工具面。屋子是共享目录，cwd 不能独占身份。
+test('按会话 id 认她：他开在她屋里的会话不是她', () => {
+  resetHerSessions()
+  const her = 'C:\\her-home'
+  rememberHerSession('her-1')
+  assert.equal(isHerAgent({ session: { header: { id: 'session-her-1', cwd: her } } }, her), true, '她在家，是')
+  assert.equal(isHerAgent({ session: { header: { id: 'session-her-1', cwd: 'D:\\work' } } }, her), true, '她换个工作区也还是她')
+  assert.equal(isHerAgent({ session: { header: { id: 'session-his-1', cwd: her } } }, her), false, '他开在她的屋里，不是她')
+  resetHerSessions()
+})
+
+test('建会话那一瞬认领 id，窗口一关就不再认', async () => {
+  resetHerSessions()
+  const her = 'C:\\her-home'
+  const born = { session: { header: { id: 'session-new-1', cwd: her } } }
+  let seen = null
+  // 宿主的 create 在返回前同步发 agent/created：那一刻 id 还拿不到，只能靠窗口认
+  await asHerSession(async () => { seen = isHerAgent(born, her) })
+  assert.equal(seen, true, '窗口里建出来的会话算她的')
+  assert.equal(isHerAgent(born, her), true, '认领过以后一直是她的')
+  assert.equal(
+    isHerAgent({ session: { header: { id: 'session-other-1', cwd: her } } }, her),
+    false,
+    '窗口关了以后，他再在她的屋里开会话就不算了',
+  )
+  resetHerSessions()
+})
+
+test('seedHerSessions 从 home.json 与 channels.json 读回她的会话', async () => {
+  resetHerSessions()
+  const dir = await mkdtemp(join(tmpdir(), 'fish-seed-'))
+  await writeFile(join(dir, 'home.json'), JSON.stringify({
+    sessionId: 'session-a', rotatedFrom: 'b', rotatedTo: 'c', pressureRoomIds: ['d'],
+  }))
+  await writeFile(join(dir, 'channels.json'), JSON.stringify([
+    { channel: 'qq', sessionId: 'session-e' },
+    { channel: 'tg', sessionId: '' },
+  ]))
+  seedHerSessions(dir)
+  const her = join(dir, 'home')
+  for (const id of ['a', 'b', 'c', 'd', 'e']) {
+    assert.equal(
+      isHerAgent({ session: { header: { id: `session-${id}`, cwd: 'D:\\work' } } }, her),
+      true,
+      `重启后 ${id} 还是她`,
+    )
+  }
+  assert.equal(isHerAgent({ session: { header: { id: 'session-zzz', cwd: her } } }, her), false)
+
+  // 台账文件坏了不能连累启动：读坏了等于没读
+  const bad = await mkdtemp(join(tmpdir(), 'fish-seed-bad-'))
+  await writeFile(join(bad, 'home.json'), '{oops')
+  assert.doesNotThrow(() => seedHerSessions(bad))
+  resetHerSessions()
+})
+
+test('两个家在同一个进程里各认各的，不互相认领', () => {
+  resetHerSessions()
+  const homeA = 'C:\\fish-a\\home'
+  const homeB = 'D:\\fish-b\\home'
+  rememberHerSession('a-1', homeA)
+  rememberHerSession('b-1', homeB)
+  const agent = (id, cwd) => ({ session: { header: { id, cwd } } })
+  assert.equal(isHerAgent(agent('a-1', 'C:\\work'), homeA), true, 'A 家的会话在 A 家算她')
+  assert.equal(isHerAgent(agent('a-1', 'C:\\work'), homeB), false, 'A 家的会话在 B 家不算她')
+  assert.equal(isHerAgent(agent('b-1', 'C:\\work'), homeB), true, 'B 家的会话在 B 家算她')
+  assert.equal(isHerAgent(agent('b-1', 'C:\\work'), homeA), false, 'B 家的会话在 A 家不算她')
+  // 窗口也按家分开：在 A 家建会话，不能顺手认领 B 家屋里那条
+  const born = agent('c-1', homeB)
+  let seen = null
+  asHerSession(homeA, async () => { seen = isHerAgent(born, homeB) })
+  assert.equal(seen, false, 'A 家的窗口不认 B 家屋里建出来的会话')
+  resetHerSessions()
 })
 
 test('只有她的 agent 被收窄，别人的会话一个都不碰', () => {
@@ -343,6 +423,9 @@ test('换了一个她（还在重试）：按新的这个算，不沿用上一�
 test('她同时住着好几条会话：按指定那条的工具表算，群房后建也不顶掉家里那条（issue #58）', () => {
   const ctx = fakeCtx()
   registerToolRestrict(ctx, { herDir: 'C:\\h', extra: ['web_search', 'ops_bash'], log: () => {} })
+  // 2026-11-22 起按会话 id 认人：这两条是她建的，先记进台账（老代码这里靠 cwd）。
+  rememberHerSession('s-home')
+  rememberHerSession('s-room')
   ctx.emit('agent/created', { agent: hostAgent('C:\\h', { sid: 's-home', restrictable: [...HER_TOOLS, 'web_search'], own: ['ops_bash'] }).agent })
   // 群房：cwd 一样也是她，但不带家里的 preset，工具表不一样
   ctx.emit('agent/created', { agent: hostAgent('C:\\h', { sid: 's-room', restrictable: HER_TOOLS }).agent })
@@ -358,6 +441,10 @@ test('会话 id 带不带 session- 前缀，认的是同一条（issue #58）', 
   // 宿主两处给的 id 写法不一定一样（identity.js 的 wakeKey 同一个理由）。对不上的话每次都查不到家里那条。
   const ctx = fakeCtx()
   registerToolRestrict(ctx, { herDir: 'C:\\h', extra: ['image_gen'], log: () => {} })
+  // 这三条都是她建的（2026-11-22 起按 id 认人）
+  rememberHerSession('s1')
+  rememberHerSession('g1')
+  rememberHerSession('s2')
   ctx.emit('agent/created', { agent: hostAgent('C:\\h', { sid: 'session-s1', restrictable: HER_TOOLS }).agent })
   ctx.emit('agent/created', { agent: hostAgent('C:\\h', { sid: 'session-g1', restrictable: HER_TOOLS, own: ['image_gen'] }).agent })
   for (const sid of ['s1', 'session-s1']) {
@@ -376,10 +463,12 @@ test('群房一多：常问的那条不先被挤掉；真挤掉了是不知道�
   const ctx = fakeCtx()
   registerToolRestrict(ctx, { herDir: 'C:\\h', extra: ['web_search', 'image_gen'], log: () => {} })
   const home = hostAgent('C:\\h', { sid: 's-home', restrictable: [...HER_TOOLS, 'web_search'] })
+  rememberHerSession('s-home')
   ctx.emit('agent/created', { agent: home.agent })
   const rooms = [] // 留着引用：群房都还活着，淘汰只能按先后
   const room = (i) => {
     const r = hostAgent('C:\\h', { sid: `s-room${i}`, restrictable: HER_TOOLS, own: ['image_gen'] })
+    rememberHerSession(`s-room${i}`)
     rooms.push(r)
     ctx.emit('agent/created', { agent: r.agent })
   }
@@ -406,6 +495,7 @@ test('重新注册以后：之前的她探活交回来也不替她担保，等�
   const ctx = fakeCtx()
   registerToolRestrict(ctx, { herDir: 'C:\\h', extra: ['web_search'], log: () => {} })
   const old = hostAgent('C:\\h', { sid: 's1', restrictable: [...HER_TOOLS, 'web_search'], own: ['ops_bash'] })
+  rememberHerSession('s1')
   ctx.emit('agent/created', { agent: old.agent })
   assert.ok(currentAllowTools('s1', { agent: old.agent }).includes('web_search'))
   assert.ok(!currentAllowTools('s1', { agent: old.agent }).includes('ops_bash'), '前提：上一份白名单没放 ops_bash')

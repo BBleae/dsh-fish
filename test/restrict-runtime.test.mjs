@@ -20,7 +20,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { HER_TOOLS, FISH_TOOLS, registerToolRestrict, readRestrictState, currentAllowTools, visibleAllowTools, forgetBlockedTools, rememberKnownTools } from '../lib/restrict.js'
+import { HER_TOOLS, FISH_TOOLS, registerToolRestrict, readRestrictState, currentAllowTools, visibleAllowTools, forgetBlockedTools, rememberKnownTools, rememberHerSession } from '../lib/restrict.js'
 import { forgetRegisteredTools, noteRegisteredTool } from '../lib/toolreg.js'
 import { writeSelfDoc, selfDocPath } from '../lib/selfdoc.js'
 import { writeConfig } from '../lib/store.js'
@@ -54,11 +54,12 @@ function busCtx() {
  * `own` 是她自己那一层的名字：view 的 visible 里有、restrictableNames 里没有，restrict 点不了名。
  */
 function hostAgent(cwd, names, { visible = true, own = [] } = {}) {
+  // 2026-11-22 起按会话 id 认人：这个假宿主的 id 固定是 s1，先记进台账。
+  rememberHerSession('s1')
   const sent = []
   const guards = []
   const agent = {
-    session: { header: { cwd, id: 's1' } },
-    ctx: {
+    session: { header: { cwd, id: 's1' } },    ctx: {
       effect() {},
       tools: {
         view: () => (visible

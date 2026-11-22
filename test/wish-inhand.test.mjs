@@ -18,7 +18,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { HER_TOOLS, currentAllowTools, registerToolRestrict } from '../lib/restrict.js'
+import { HER_TOOLS, currentAllowTools, registerToolRestrict, rememberHerSession } from '../lib/restrict.js'
 import { wishesOf } from '../lib/wish.js'
 import { looseEnds } from '../lib/proactive.js'
 import { startScheduler, wakeNow } from '../lib/scheduler.js'
@@ -57,6 +57,8 @@ function pluginCtx() {
  * `own` 是 own 层的（看得见、收不窄，别的插件按会话挂的那种）。
  */
 function herAgent(cwd, names, { sid = 's1', own = [] } = {}) {
+  // 2026-11-22 起按会话 id 认人：家里那条与群房都是她的，建出来先记进台账。
+  if (sid) rememberHerSession(sid)
   const sent = []
   const agent = {
     session: { header: { cwd, ...(sid ? { id: sid } : {}) } },
@@ -151,6 +153,8 @@ async function withHer({ allow = [], host, cold = false, sid = 's1', own = [] },
     })
     await writeConfig(config, root)
     await writeFile(join(root, 'home.json'), JSON.stringify({ wsId: 'ws1', sessionId: 's1' }), 'utf8')
+    // 2026-11-22 起按会话 id 认人：这条是她屋子里的那条，先记进台账。
+    rememberHerSession(sid)
     const herDir = join(root, 'her')
     const pctx = pluginCtx()
     const logs = []
